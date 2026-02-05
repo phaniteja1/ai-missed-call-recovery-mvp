@@ -77,9 +77,24 @@ module.exports = async (req, res) => {
     const vapiApiKey = process.env.VAPI_API_KEY;
     const vapiPhoneNumberId = process.env.VAPI_PHONE_NUMBER_ID;
     const vapiAssistantId = process.env.VAPI_ASSISTANT_ID;
+    const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID;
+    const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
+    
+    console.log('🔧 Env vars check:', {
+      hasVapiKey: !!vapiApiKey,
+      hasAssistantId: !!vapiAssistantId,
+      hasPhoneNumberId: !!vapiPhoneNumberId,
+      hasTwilioSid: !!twilioAccountSid,
+      hasTwilioToken: !!twilioAuthToken
+    });
     
     if (!vapiApiKey) {
       console.error('❌ VAPI_API_KEY not configured');
+      return sendErrorResponse(res, 'Service configuration error. Please contact support.');
+    }
+    
+    if (!vapiAssistantId) {
+      console.error('❌ VAPI_ASSISTANT_ID not configured');
       return sendErrorResponse(res, 'Service configuration error. Please contact support.');
     }
 
@@ -99,8 +114,8 @@ module.exports = async (req, res) => {
         
         // If no phoneNumberId, pass the Twilio number as object
         phoneNumber: vapiPhoneNumberId ? undefined : {
-          twilioAccountSid: process.env.TWILIO_ACCOUNT_SID,
-          twilioAuthToken: process.env.TWILIO_AUTH_TOKEN,
+          twilioAccountSid: twilioAccountSid,
+          twilioAuthToken: twilioAuthToken,
           twilioPhoneNumber: To
         },
         
