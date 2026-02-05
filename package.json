@@ -1,0 +1,25 @@
+{
+  "name": "ai-missed-call-recovery-mvp",
+  "version": "1.0.0",
+  "description": "AI-powered missed call recovery service with Twilio voice integration",
+  "main": "api/webhook.js",
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod"
+  },
+  "keywords": [
+    "twilio",
+    "voice",
+    "ai",
+    "call-handling",
+    "vercel"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "twilio": "^5.3.4"
+  },
+  "engines": {
+    "node": ">=18.x"
+  }
+}
