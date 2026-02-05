@@ -6,10 +6,13 @@
  * 
  * Flow:
  * 1. Twilio receives call → POST to this webhook
- * 2. We initiate a Vapi Web Call via API
- * 3. Return TwiML <Connect><Stream> to bridge Twilio ↔ Vapi
- * 4. Vapi handles the AI conversation
- * 5. Call events sent to /api/vapi-webhook
+ * 2. We call Vapi's /call endpoint with phoneCallProviderBypassEnabled: true
+ * 3. Vapi returns TwiML that connects the call to their AI assistant
+ * 4. We return that TwiML to Twilio
+ * 5. Vapi handles the entire AI conversation
+ * 6. Call events are sent to /api/vapi-webhook
+ * 
+ * Based on: https://github.com/VapiAI/example-phone-call-provider-bypass
  */
 
 const twilio = require('twilio');
@@ -72,6 +75,7 @@ module.exports = async (req, res) => {
 
     // Check Vapi configuration
     const vapiApiKey = process.env.VAPI_API_KEY;
+    const vapiPhoneNumberId = process.env.VAPI_PHONE_NUMBER_ID;
     const vapiAssistantId = process.env.VAPI_ASSISTANT_ID;
     
     if (!vapiApiKey) {
@@ -79,62 +83,62 @@ module.exports = async (req, res) => {
       return sendErrorResponse(res, 'Service configuration error. Please contact support.');
     }
 
-    // Initiate Vapi Web Call
-    console.log('🤖 Initiating Vapi AI call...');
+    // Call Vapi to get TwiML for this call
+    console.log('🤖 Requesting Vapi AI TwiML...');
     
-    const vapiCallResponse = await fetch('https://api.vapi.ai/call/web', {
+    const vapiCallResponse = await fetch('https://api.vapi.ai/call', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${vapiApiKey}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        assistantId: vapiAssistantId, // Uses default assistant if not specified
+        // Phone number ID from Vapi dashboard (if you imported Twilio number to Vapi)
+        // Leave undefined if not using imported numbers
+        phoneNumberId: vapiPhoneNumberId || undefined,
+        
+        // This tells Vapi to return TwiML instead of initiating the call itself
+        phoneCallProviderBypassEnabled: true,
+        
+        // Customer information
+        customer: {
+          number: From
+        },
+        
+        // Assistant ID (optional - uses default or dynamic config from vapi-webhook)
+        assistantId: vapiAssistantId || undefined,
+        
+        // Optional: Add metadata for tracking
         metadata: {
           twilioCallSid: CallSid,
-          callerNumber: From,
           twilioNumber: To,
           callerLocation: `${CallerCity}, ${CallerState}`,
           timestamp: new Date().toISOString()
-        },
-        // Optional: Provide assistant configuration inline (overrides assistantId)
-        // assistant: {
-        //   model: {
-        //     provider: "openai",
-        //     model: "gpt-4",
-        //     messages: [{
-        //       role: "system",
-        //       content: "You are a friendly AI assistant handling incoming calls..."
-        //     }]
-        //   },
-        //   voice: {
-        //     provider: "11labs",
-        //     voiceId: "21m00Tcm4TlvDq8ikWAM" // Rachel
-        //   }
-        // }
+        }
       })
     });
 
     if (!vapiCallResponse.ok) {
-      const errorData = await vapiCallResponse.text();
-      console.error('❌ Vapi API error:', errorData);
+      const errorText = await vapiCallResponse.text();
+      console.error('❌ Vapi API error:', vapiCallResponse.status, errorText);
       return sendErrorResponse(res, 'AI service temporarily unavailable. Please try again.');
     }
 
     const vapiCall = await vapiCallResponse.json();
-    console.log('✅ Vapi call initiated:', vapiCall.id);
+    console.log('✅ Vapi call created:', vapiCall.id);
 
-    // Create TwiML response to connect Twilio to Vapi via WebSocket
-    const twiml = new twilio.twiml.VoiceResponse();
-    
-    const connect = twiml.connect();
-    const stream = connect.stream({
-      url: vapiCall.webCallUrl // Vapi WebSocket URL
-    });
+    // Extract TwiML from Vapi response
+    const twiml = vapiCall.phoneCallProviderDetails?.twiml;
 
-    // Return TwiML to establish the WebSocket connection
+    if (!twiml) {
+      console.error('❌ No TwiML in Vapi response:', vapiCall);
+      return sendErrorResponse(res, 'AI service error. Please try again.');
+    }
+
+    // Return Vapi's TwiML to Twilio
+    // This TwiML contains the WebSocket connection to Vapi's AI assistant
     res.setHeader('Content-Type', 'text/xml');
-    return res.status(200).send(twiml.toString());
+    return res.status(200).send(twiml);
 
   } catch (error) {
     console.error('❌ Error handling webhook:', error);

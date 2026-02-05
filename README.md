@@ -35,6 +35,27 @@ A production-ready Twilio voice webhook service with **Vapi AI Voice Assistant**
 3. Copy your API key (starts with `vapi_...`)
 4. Save this - you'll add it to `.env` later
 
+### Step 2.5: Import Twilio Number to Vapi (Optional)
+
+You have two options for connecting Twilio to Vapi:
+
+**Option A: Keep Twilio number separate (Recommended for this MVP)**
+- Configure Twilio webhook to point to your Vercel deployment
+- Vapi receives calls via webhook integration
+- **Pro:** More control, easier testing
+- **Con:** Slightly more complex setup
+- **What you need:** Just `VAPI_API_KEY` and optionally `VAPI_ASSISTANT_ID`
+
+**Option B: Import Twilio number into Vapi**
+- Import your Twilio number directly in Vapi Dashboard
+- Vapi manages the Twilio integration automatically
+- **Pro:** Simpler long-term, managed by Vapi
+- **Con:** Less control over webhook flow
+- **What you need:** Follow [this guide](https://docs.vapi.ai/phone-numbers/import-twilio)
+- **Additional env var:** `VAPI_PHONE_NUMBER_ID`
+
+**For this MVP, use Option A (webhook integration).** The code is already set up for it.
+
 ### Step 3: Create an AI Assistant (Optional)
 
 You have two options:
@@ -100,6 +121,7 @@ TWILIO_PHONE_NUMBER=+1234567890
 # Vapi AI
 VAPI_API_KEY=vapi_xxxxxxxxxxxxxxxxxxxxxxxxx
 VAPI_ASSISTANT_ID=asst_xxxxxxxxxx  # Optional - only if using Option B above
+VAPI_PHONE_NUMBER_ID=ph_xxxxxxxxxx  # Optional - only if you imported Twilio number to Vapi
 ```
 
 **Where to find these:**
