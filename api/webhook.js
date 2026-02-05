@@ -94,8 +94,11 @@ module.exports = async (req, res) => {
       },
       body: JSON.stringify({
         // Phone number ID from Vapi dashboard (if you imported Twilio number to Vapi)
-        // Leave undefined if not using imported numbers
+        // OR pass the raw phone number below
         phoneNumberId: vapiPhoneNumberId || undefined,
+        
+        // If no phoneNumberId, pass the raw Twilio number
+        phoneNumber: vapiPhoneNumberId ? undefined : To,
         
         // This tells Vapi to return TwiML instead of initiating the call itself
         phoneCallProviderBypassEnabled: true,
@@ -105,8 +108,8 @@ module.exports = async (req, res) => {
           number: From
         },
         
-        // Assistant ID (optional - uses default or dynamic config from vapi-webhook)
-        assistantId: vapiAssistantId || undefined,
+        // Assistant ID (required)
+        assistantId: vapiAssistantId,
         
         // Optional: Add metadata for tracking
         metadata: {
