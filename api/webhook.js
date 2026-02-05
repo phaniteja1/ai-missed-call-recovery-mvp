@@ -97,8 +97,12 @@ module.exports = async (req, res) => {
         // OR pass the raw phone number below
         phoneNumberId: vapiPhoneNumberId || undefined,
         
-        // If no phoneNumberId, pass the raw Twilio number
-        phoneNumber: vapiPhoneNumberId ? undefined : To,
+        // If no phoneNumberId, pass the Twilio number as object
+        phoneNumber: vapiPhoneNumberId ? undefined : {
+          twilioAccountSid: process.env.TWILIO_ACCOUNT_SID,
+          twilioAuthToken: process.env.TWILIO_AUTH_TOKEN,
+          twilioPhoneNumber: To
+        },
         
         // This tells Vapi to return TwiML instead of initiating the call itself
         phoneCallProviderBypassEnabled: true,
