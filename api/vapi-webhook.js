@@ -1,18 +1,30 @@
 /**
- * Vapi Event Webhook Handler
+ * Vapi Event Webhook Handler with Database Persistence
  * 
- * Receives events from Vapi AI during and after calls.
+ * Receives events from Vapi AI during and after calls and persists
+ * them to Supabase for multi-tenant analytics and Cal.com integration.
+ * 
  * Configure this URL in your Vapi dashboard under "Server URL".
  * 
- * Events include:
+ * Events handled:
  * - assistant-request: When call starts (can return custom assistant config)
  * - status-update: Call status changes (ringing, in-progress, ended)
  * - transcript: Real-time conversation transcript
- * - function-call: When assistant wants to call a function
+ * - function-call: When assistant wants to call a function (e.g., book appointment)
  * - end-of-call-report: Final call summary and analytics
  * 
  * Vapi Webhook Docs: https://docs.vapi.ai/server-url
  */
+
+const {
+  getBusinessByPhone,
+  upsertCall,
+  insertTranscript,
+  createBooking
+} = require('../lib/supabase');
+
+// Counter for transcript sequence numbers (per call)
+const transcriptSequences = new Map();
 
 /**
  * Main webhook handler for Vapi events
@@ -38,19 +50,19 @@ module.exports = async (req, res) => {
     // Handle different event types
     switch (eventType) {
       case 'assistant-request':
-        return handleAssistantRequest(event, res);
+        return await handleAssistantRequest(event, res);
       
       case 'status-update':
-        return handleStatusUpdate(event, res);
+        return await handleStatusUpdate(event, res);
       
       case 'transcript':
-        return handleTranscript(event, res);
+        return await handleTranscript(event, res);
       
       case 'function-call':
-        return handleFunctionCall(event, res);
+        return await handleFunctionCall(event, res);
       
       case 'end-of-call-report':
-        return handleEndOfCallReport(event, res);
+        return await handleEndOfCallReport(event, res);
       
       default:
         console.log('ℹ️ Unhandled event type:', eventType);
@@ -59,25 +71,391 @@ module.exports = async (req, res) => {
 
   } catch (error) {
     console.error('❌ Error handling Vapi webhook:', error);
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ 
+      error: 'Internal server error',
+      message: error.message 
+    });
   }
 };
 
 /**
  * Handle assistant-request event
  * Called when Vapi needs assistant configuration
- * Return custom assistant config or empty object to use default
+ * Return custom assistant config with Cal.com booking functions
  */
-function handleAssistantRequest(event, res) {
+async function handleAssistantRequest(event, res) {
   const { call } = event.message;
   
   console.log('🤖 Assistant requested for call:', call?.id);
 
-  // Option 1: Return empty to use assistantId from webhook.js
-  // return res.status(200).json({});
+  try {
+    // Look up business by phone number to customize assistant
+    const business = await getBusinessByPhone(call?.phoneNumber?.number);
+    
+    if (!business) {
+      console.warn('⚠️ Business not found for phone:', call?.phoneNumber?.number);
+      // Return default assistant config
+      return res.status(200).json({
+        assistant: getDefaultAssistantConfig()
+      });
+    }
 
-  // Option 2: Return custom assistant configuration
-  const assistantConfig = {
+    console.log('✅ Found business:', business.name);
+
+    // Create initial call record
+    await upsertCall({
+      business_id: business.id,
+      vapi_call_id: call?.id,
+      customer_phone: call?.customer?.number,
+      status: 'queued',
+      direction: 'inbound',
+      metadata: {
+        vapi_call: call
+      }
+    });
+
+    // Return assistant config with booking functions if Cal.com is connected
+    const assistantConfig = business.calcom_access_token
+      ? getAssistantConfigWithBooking(business)
+      : getDefaultAssistantConfig();
+
+    return res.status(200).json({ assistant: assistantConfig });
+
+  } catch (error) {
+    console.error('❌ Error in assistant-request:', error);
+    return res.status(200).json({
+      assistant: getDefaultAssistantConfig()
+    });
+  }
+}
+
+/**
+ * Handle status-update event
+ * Track call lifecycle and persist status changes
+ */
+async function handleStatusUpdate(event, res) {
+  const { call, status } = event.message;
+  
+  console.log('📊 Call status update:', {
+    callId: call?.id,
+    status: status,
+    from: call?.customer?.number
+  });
+
+  try {
+    // Find business for this call
+    const business = await getBusinessByPhone(call?.phoneNumber?.number);
+    if (!business) {
+      console.warn('⚠️ Business not found for status update');
+      return res.status(200).json({ received: true });
+    }
+
+    // Update call status
+    await upsertCall({
+      business_id: business.id,
+      vapi_call_id: call?.id,
+      customer_phone: call?.customer?.number,
+      status: mapVapiStatus(status),
+      started_at: call?.startedAt ? new Date(call.startedAt).toISOString() : null,
+      metadata: {
+        vapi_status: status
+      }
+    });
+
+    console.log('✅ Call status updated in database');
+
+  } catch (error) {
+    console.error('❌ Error updating call status:', error);
+  }
+
+  return res.status(200).json({ received: true });
+}
+
+/**
+ * Handle transcript event
+ * Store real-time conversation in database
+ */
+async function handleTranscript(event, res) {
+  const { call, transcript, role } = event.message;
+  
+  console.log('💬 Transcript:', {
+    callId: call?.id,
+    role: role,
+    text: transcript?.substring(0, 100) + '...'
+  });
+
+  try {
+    // Find business for this call
+    const business = await getBusinessByPhone(call?.phoneNumber?.number);
+    if (!business) {
+      console.warn('⚠️ Business not found for transcript');
+      return res.status(200).json({ received: true });
+    }
+
+    // Get or create the call record
+    const callRecord = await upsertCall({
+      business_id: business.id,
+      vapi_call_id: call?.id,
+      customer_phone: call?.customer?.number
+    });
+
+    // Track sequence number for this call
+    const callKey = call?.id;
+    if (!transcriptSequences.has(callKey)) {
+      transcriptSequences.set(callKey, 0);
+    }
+    const sequence = transcriptSequences.get(callKey);
+    transcriptSequences.set(callKey, sequence + 1);
+
+    // Insert transcript
+    await insertTranscript(
+      callRecord.id,
+      role === 'user' ? 'user' : 'assistant',
+      transcript,
+      sequence
+    );
+
+    console.log('✅ Transcript saved to database');
+
+  } catch (error) {
+    console.error('❌ Error saving transcript:', error);
+  }
+
+  return res.status(200).json({ received: true });
+}
+
+/**
+ * Handle function-call event
+ * Execute custom functions like checking availability or booking appointments
+ */
+async function handleFunctionCall(event, res) {
+  const { call, functionCall } = event.message;
+  const { name, parameters } = functionCall;
+  
+  console.log('🔧 Function call requested:', {
+    callId: call?.id,
+    function: name,
+    parameters: parameters
+  });
+
+  try {
+    // Find business for this call
+    const business = await getBusinessByPhone(call?.phoneNumber?.number);
+    if (!business) {
+      return res.status(200).json({
+        error: 'Business not configured for bookings'
+      });
+    }
+
+    // Route to appropriate function handler
+    switch (name) {
+      case 'checkAvailability':
+        return await handleCheckAvailability(business, parameters, res);
+      
+      case 'createBooking':
+        return await handleCreateBooking(business, call, parameters, res);
+      
+      default:
+        console.warn('⚠️ Unknown function:', name);
+        return res.status(200).json({
+          error: `Function ${name} not implemented`
+        });
+    }
+
+  } catch (error) {
+    console.error('❌ Error executing function:', error);
+    return res.status(200).json({
+      error: 'Failed to execute function',
+      message: error.message
+    });
+  }
+}
+
+/**
+ * Handle end-of-call-report event
+ * Store comprehensive call analytics and summary
+ */
+async function handleEndOfCallReport(event, res) {
+  const { call, endedReason, summary, transcript, recording, analysis } = event.message;
+  
+  console.log('📋 End of call report:', {
+    callId: call?.id,
+    duration: call?.duration,
+    endedReason: endedReason
+  });
+
+  try {
+    // Find business for this call
+    const business = await getBusinessByPhone(call?.phoneNumber?.number);
+    if (!business) {
+      console.warn('⚠️ Business not found for end-of-call report');
+      return res.status(200).json({ received: true });
+    }
+
+    // Get or create the call record
+    const callRecord = await upsertCall({
+      business_id: business.id,
+      vapi_call_id: call?.id,
+      customer_phone: call?.customer?.number,
+      status: 'completed',
+      started_at: call?.startedAt ? new Date(call.startedAt).toISOString() : null,
+      ended_at: call?.endedAt ? new Date(call.endedAt).toISOString() : null,
+      duration_seconds: call?.duration || null,
+      ended_reason: endedReason,
+      recording_url: recording?.url,
+      full_transcript: transcript,
+      summary: summary,
+      sentiment: analysis?.sentiment || null,
+      intent: analysis?.intent || extractIntent(summary, transcript),
+      metadata: {
+        vapi_analysis: analysis,
+        vapi_call: call
+      }
+    });
+
+    console.log('✅ Call record finalized in database');
+
+    // Clean up transcript sequence tracking
+    transcriptSequences.delete(call?.id);
+
+    // TODO: Trigger follow-up actions
+    // - Send notification if booking wasn't created but customer showed interest
+    // - Send summary email to business owner
+    // - Update CRM with call notes
+
+  } catch (error) {
+    console.error('❌ Error saving end-of-call report:', error);
+  }
+
+  return res.status(200).json({ received: true });
+}
+
+/**
+ * Check availability via Cal.com API
+ * This will be called by the assistant during the conversation
+ */
+async function handleCheckAvailability(business, parameters, res) {
+  const { date, timePreference } = parameters;
+  
+  console.log('📅 Checking availability:', { date, timePreference });
+
+  try {
+    // Import Cal.com helper (to be created)
+    const { checkAvailability } = require('../lib/calcom');
+    
+    const slots = await checkAvailability(
+      business.id,
+      date,
+      timePreference
+    );
+
+    if (slots && slots.length > 0) {
+      const formattedSlots = slots.slice(0, 3).map(slot => {
+        const time = new Date(slot).toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true
+        });
+        return time;
+      });
+
+      return res.status(200).json({
+        result: `I have availability at: ${formattedSlots.join(', ')}. Which time works best for you?`,
+        slots: slots
+      });
+    } else {
+      return res.status(200).json({
+        result: `I don't have any availability on ${date}. Would you like to try another date?`
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ Error checking availability:', error);
+    return res.status(200).json({
+      error: 'Unable to check availability at this time'
+    });
+  }
+}
+
+/**
+ * Create booking via Cal.com API
+ * This will be called by the assistant when customer confirms a time
+ */
+async function handleCreateBooking(business, call, parameters, res) {
+  const { name, email, phone, dateTime, notes } = parameters;
+  
+  console.log('✨ Creating booking:', { name, email, dateTime });
+
+  try {
+    // Import Cal.com helper (to be created)
+    const { createCalcomBooking } = require('../lib/calcom');
+    
+    const calcomBooking = await createCalcomBooking(
+      business.id,
+      {
+        name,
+        email,
+        phone: phone || call?.customer?.number,
+        start: dateTime,
+        notes: notes || `Booked via AI call assistant`
+      }
+    );
+
+    // Get the call record
+    const callRecord = await upsertCall({
+      business_id: business.id,
+      vapi_call_id: call?.id,
+      customer_phone: call?.customer?.number
+    });
+
+    // Store booking in database
+    await createBooking({
+      business_id: business.id,
+      call_id: callRecord.id,
+      calcom_booking_id: calcomBooking.id,
+      calcom_uid: calcomBooking.uid,
+      calcom_event_type_id: business.calcom_event_type_id,
+      customer_name: name,
+      customer_email: email,
+      customer_phone: phone || call?.customer?.number,
+      scheduled_at: new Date(dateTime).toISOString(),
+      duration_minutes: 30,
+      status: 'confirmed',
+      notes: notes
+    });
+
+    console.log('✅ Booking created successfully');
+
+    const formattedTime = new Date(dateTime).toLocaleString('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+
+    return res.status(200).json({
+      result: `Perfect! I've scheduled your appointment for ${formattedTime}. You'll receive a confirmation email at ${email} with all the details. Is there anything else I can help you with?`
+    });
+
+  } catch (error) {
+    console.error('❌ Error creating booking:', error);
+    return res.status(200).json({
+      error: 'Unable to create booking. Let me transfer you to someone who can help.'
+    });
+  }
+}
+
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
+
+/**
+ * Get default assistant configuration (no booking functions)
+ */
+function getDefaultAssistantConfig() {
+  return {
     model: {
       provider: 'openai',
       model: 'gpt-4',
@@ -102,155 +480,136 @@ Be conversational, empathetic, and efficient. Keep responses concise (1-2 senten
     },
     voice: {
       provider: '11labs',
-      voiceId: '21m00Tcm4TlvDq8ikWAM' // Rachel - warm, professional female voice
-      // Other options: 'pNInz6obpgDQGcFmaJgB' (Adam - male)
+      voiceId: '21m00Tcm4TlvDq8ikWAM' // Rachel - warm, professional
     },
     firstMessage: "Hello! Thanks for calling. How can I help you today?",
     endCallMessage: "Thank you for calling! Have a great day.",
-    recordingEnabled: true,
-    // Optional: Add function calling for actions like booking appointments
-    // functions: [
-    //   {
-    //     name: 'scheduleCallback',
-    //     description: 'Schedule a callback for the customer',
-    //     parameters: {
-    //       type: 'object',
-    //       properties: {
-    //         phoneNumber: { type: 'string' },
-    //         preferredTime: { type: 'string' }
-    //       }
-    //     }
-    //   }
-    // ]
+    recordingEnabled: true
   };
-
-  return res.status(200).json({ assistant: assistantConfig });
 }
 
 /**
- * Handle status-update event
- * Track call lifecycle: queued → ringing → in-progress → ended
+ * Get assistant configuration with Cal.com booking functions
  */
-function handleStatusUpdate(event, res) {
-  const { call, status } = event.message;
-  
-  console.log('📊 Call status update:', {
-    callId: call?.id,
-    status: status,
-    from: call?.customer?.number,
-    timestamp: new Date().toISOString()
-  });
+function getAssistantConfigWithBooking(business) {
+  return {
+    model: {
+      provider: 'openai',
+      model: 'gpt-4',
+      messages: [
+        {
+          role: 'system',
+          content: `You are a friendly AI scheduling assistant for ${business.name}.
 
-  // TODO: Store status updates in database for analytics
-  // await db.calls.update(call.id, { status, updatedAt: new Date() });
+Your goals:
+1. Greet the caller warmly
+2. Ask if they'd like to schedule an appointment
+3. Check availability using the checkAvailability function
+4. Collect: full name, email, phone number, and preferred date/time
+5. Create the booking using createBooking function
+6. Confirm the appointment details
+7. Thank them for calling
 
-  return res.status(200).json({ received: true });
+Be conversational and helpful. Guide them through booking smoothly.`
+        }
+      ],
+      temperature: 0.7,
+      maxTokens: 200
+    },
+    voice: {
+      provider: '11labs',
+      voiceId: '21m00Tcm4TlvDq8ikWAM'
+    },
+    firstMessage: `Hello! Thanks for calling ${business.name}. Would you like to schedule an appointment today?`,
+    endCallMessage: "Thank you for calling! We look forward to seeing you.",
+    recordingEnabled: true,
+    functions: [
+      {
+        name: 'checkAvailability',
+        description: 'Check available appointment times for a given date',
+        parameters: {
+          type: 'object',
+          properties: {
+            date: {
+              type: 'string',
+              description: 'Date to check availability (YYYY-MM-DD format)'
+            },
+            timePreference: {
+              type: 'string',
+              enum: ['morning', 'afternoon', 'evening', 'any'],
+              description: 'Preferred time of day'
+            }
+          },
+          required: ['date']
+        }
+      },
+      {
+        name: 'createBooking',
+        description: 'Create an appointment booking',
+        parameters: {
+          type: 'object',
+          properties: {
+            name: {
+              type: 'string',
+              description: 'Customer full name'
+            },
+            email: {
+              type: 'string',
+              description: 'Customer email address'
+            },
+            phone: {
+              type: 'string',
+              description: 'Customer phone number'
+            },
+            dateTime: {
+              type: 'string',
+              description: 'Appointment date and time (ISO 8601 format)'
+            },
+            notes: {
+              type: 'string',
+              description: 'Additional notes or reason for appointment'
+            }
+          },
+          required: ['name', 'email', 'dateTime']
+        }
+      }
+    ]
+  };
 }
 
 /**
- * Handle transcript event
- * Real-time conversation transcript as it happens
+ * Map Vapi status to our database status enum
  */
-function handleTranscript(event, res) {
-  const { call, transcript, role } = event.message;
-  
-  console.log('💬 Transcript:', {
-    callId: call?.id,
-    role: role, // 'user' or 'assistant'
-    text: transcript,
-    timestamp: new Date().toISOString()
-  });
-
-  // TODO: Store transcripts for review and training
-  // await db.transcripts.create({
-  //   callId: call.id,
-  //   role,
-  //   text: transcript,
-  //   timestamp: new Date()
-  // });
-
-  return res.status(200).json({ received: true });
+function mapVapiStatus(vapiStatus) {
+  const statusMap = {
+    'queued': 'queued',
+    'ringing': 'ringing',
+    'in-progress': 'in-progress',
+    'forwarding': 'in-progress',
+    'ended': 'completed'
+  };
+  return statusMap[vapiStatus] || vapiStatus;
 }
 
 /**
- * Handle function-call event
- * Execute custom functions when assistant requests them
+ * Extract intent from conversation (simple keyword matching)
+ * TODO: Use GPT-4 for better intent classification
  */
-function handleFunctionCall(event, res) {
-  const { call, functionCall } = event.message;
-  const { name, parameters } = functionCall;
+function extractIntent(summary, transcript) {
+  const text = `${summary || ''} ${transcript || ''}`.toLowerCase();
   
-  console.log('🔧 Function call requested:', {
-    callId: call?.id,
-    function: name,
-    parameters: parameters
-  });
-
-  // Example: Handle callback scheduling
-  if (name === 'scheduleCallback') {
-    const { phoneNumber, preferredTime } = parameters;
-    
-    // TODO: Actually schedule the callback
-    // await scheduleService.createCallback({
-    //   phoneNumber,
-    //   preferredTime,
-    //   callId: call.id
-    // });
-
-    console.log(`📅 Callback scheduled for ${phoneNumber} at ${preferredTime}`);
-    
-    return res.status(200).json({
-      result: `Callback scheduled successfully for ${preferredTime}. We'll call you back at ${phoneNumber}.`
-    });
+  if (text.includes('appointment') || text.includes('schedule') || text.includes('book')) {
+    return 'booking';
   }
-
-  // Unknown function
-  return res.status(200).json({
-    error: `Function ${name} not implemented`
-  });
-}
-
-/**
- * Handle end-of-call-report event
- * Comprehensive call analytics and summary
- */
-function handleEndOfCallReport(event, res) {
-  const { call, endedReason, summary, transcript, recording } = event.message;
+  if (text.includes('question') || text.includes('information') || text.includes('how')) {
+    return 'inquiry';
+  }
+  if (text.includes('problem') || text.includes('issue') || text.includes('complaint')) {
+    return 'complaint';
+  }
+  if (text.includes('cancel') || text.includes('reschedule')) {
+    return 'modification';
+  }
   
-  console.log('📋 End of call report:', {
-    callId: call?.id,
-    from: call?.customer?.number,
-    duration: call?.duration,
-    endedReason: endedReason,
-    recordingUrl: recording?.url,
-    timestamp: new Date().toISOString()
-  });
-
-  console.log('📝 Call Summary:', summary);
-  console.log('📜 Full Transcript:', transcript);
-
-  // TODO: Store complete call data
-  // await db.calls.create({
-  //   id: call.id,
-  //   customerNumber: call.customer.number,
-  //   duration: call.duration,
-  //   endedReason,
-  //   summary,
-  //   transcript,
-  //   recordingUrl: recording?.url,
-  //   metadata: call.metadata,
-  //   createdAt: call.startedAt,
-  //   endedAt: call.endedAt
-  // });
-
-  // TODO: Send notification or follow-up
-  // if (call.metadata?.needsFollowUp) {
-  //   await notificationService.sendToTeam({
-  //     title: 'Call requires follow-up',
-  //     callId: call.id,
-  //     summary
-  //   });
-  // }
-
-  return res.status(200).json({ received: true });
+  return 'general';
 }

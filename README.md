@@ -481,9 +481,91 @@ MIT
 
 **Questions?** Open an issue or contact support.
 
-**Ready to scale?** Consider adding:
-- Database for call history
-- Admin dashboard
-- Real-time analytics
-- Multi-tenant support
-- CRM integrations
+**Ready to scale?** ✅ **Phase 2 is now available!**
+
+## 🚀 Phase 2: Multi-Tenancy + Cal.com Booking (NEW!)
+
+The MVP now includes:
+- ✅ **Multi-tenant database** (Supabase) - Store all call data
+- ✅ **Cal.com integration** - AI can book appointments during calls
+- ✅ **OAuth2 authentication** - Businesses connect their Cal.com
+- ✅ **Function calling** - AI checks availability and creates bookings
+- ✅ **Row-level security** - Complete data isolation per business
+- ✅ **Full persistence** - Calls, transcripts, bookings all stored
+
+### Quick Start (Phase 2)
+
+1. **Read the setup guide:**
+   ```
+   See: NEXT_STEPS.md
+   ```
+
+2. **Install new dependencies:**
+   ```bash
+   npm install
+   ```
+
+3. **Set up Supabase:**
+   - Create project at https://supabase.com
+   - Run migration: `supabase/migrations/001_initial_schema.sql`
+
+4. **Configure Cal.com:**
+   - Create OAuth app at https://app.cal.com
+   - Get Client ID and Secret
+
+5. **Add environment variables:**
+   ```env
+   SUPABASE_URL=https://xxx.supabase.co
+   SUPABASE_SERVICE_KEY=eyJ...
+   SUPABASE_ANON_KEY=eyJ...
+   CALCOM_CLIENT_ID=cal_live_xxx
+   CALCOM_CLIENT_SECRET=cal_secret_xxx
+   CALCOM_REDIRECT_URI=https://your-url.vercel.app/api/calcom/oauth
+   ```
+
+6. **Deploy and test:**
+   ```bash
+   vercel --prod
+   ```
+
+### Phase 2 Documentation
+
+- **`NEXT_STEPS.md`** - Quick start guide (read this first!)
+- **`PHASE2_IMPLEMENTATION.md`** - Technical architecture & API docs
+- **`CALCOM_SETUP.md`** - Detailed Cal.com setup guide
+- **`.env.example`** - Complete environment variable reference
+
+### What You Get
+
+**AI Assistant can now:**
+- Check your Cal.com availability
+- Book appointments during calls
+- Collect customer information
+- Confirm bookings in real-time
+- Send confirmation emails (via Cal.com)
+
+**Database stores:**
+- All call records with transcripts
+- Customer information
+- Booking history
+- Analytics data
+
+**Example conversation:**
+```
+AI: "Would you like to schedule an appointment?"
+Customer: "Yes, tomorrow afternoon if possible."
+AI: "Let me check... I have 2 PM, 3 PM, and 4:30 PM available."
+Customer: "2 PM works."
+AI: "Perfect! Can I get your name and email?"
+Customer: "John Doe, john@example.com"
+AI: "Great! I've booked you for tomorrow at 2 PM. 
+     You'll receive a confirmation email shortly."
+```
+
+### Consider adding (Phase 3):
+- Admin dashboard UI
+- Real-time analytics visualization
+- Multi-calendar support
+- CRM integrations (HubSpot, Salesforce)
+- Email/SMS notifications
+- Team scheduling

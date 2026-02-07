@@ -17,7 +17,9 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "twilio": "^5.3.4"
+    "twilio": "^5.3.4",
+    "@supabase/supabase-js": "^2.39.0",
+    "axios": "^1.6.5"
   },
   "engines": {
     "node": ">=18.x"
