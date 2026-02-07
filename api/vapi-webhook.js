@@ -148,6 +148,7 @@ async function handleStatusUpdate(event, res) {
     status: status,
     from: call?.customer?.number
   });
+  console.log('📞 Vapi call phoneNumber:', call?.phoneNumber);
 
   try {
     // Find business for this call
