@@ -107,6 +107,8 @@ async function handleAssistantRequest(event, res) {
       business_id: business.id,
       vapi_call_id: call?.id,
       customer_phone: call?.customer?.number,
+      from_phone: call?.customer?.number || 'unknown',
+      to_phone: call?.phoneNumber?.number || 'unknown',
       status: 'queued',
       direction: 'inbound',
       metadata: {
@@ -114,8 +116,13 @@ async function handleAssistantRequest(event, res) {
       }
     });
 
+    // Check if Cal.com is connected via business_integrations
+    const { getCalcomCredentials } = require('../lib/supabase');
+    const calcomIntegration = await getCalcomCredentials(business.id);
+    const hasCalcom = calcomIntegration && calcomIntegration.access_token;
+
     // Return assistant config with booking functions if Cal.com is connected
-    const assistantConfig = business.calcom_access_token
+    const assistantConfig = hasCalcom
       ? getAssistantConfigWithBooking(business)
       : getDefaultAssistantConfig();
 
@@ -155,6 +162,8 @@ async function handleStatusUpdate(event, res) {
       business_id: business.id,
       vapi_call_id: call?.id,
       customer_phone: call?.customer?.number,
+      from_phone: call?.customer?.number || 'unknown',
+      to_phone: call?.phoneNumber?.number || 'unknown',
       status: mapVapiStatus(status),
       started_at: call?.startedAt ? new Date(call.startedAt).toISOString() : null,
       metadata: {
@@ -196,7 +205,9 @@ async function handleTranscript(event, res) {
     const callRecord = await upsertCall({
       business_id: business.id,
       vapi_call_id: call?.id,
-      customer_phone: call?.customer?.number
+      customer_phone: call?.customer?.number,
+      from_phone: call?.customer?.number || 'unknown',
+      to_phone: call?.phoneNumber?.number || 'unknown'
     });
 
     // Track sequence number for this call
@@ -297,6 +308,8 @@ async function handleEndOfCallReport(event, res) {
       business_id: business.id,
       vapi_call_id: call?.id,
       customer_phone: call?.customer?.number,
+      from_phone: call?.customer?.number || 'unknown',
+      to_phone: call?.phoneNumber?.number || 'unknown',
       status: 'completed',
       started_at: call?.startedAt ? new Date(call.startedAt).toISOString() : null,
       ended_at: call?.endedAt ? new Date(call.endedAt).toISOString() : null,
@@ -405,8 +418,15 @@ async function handleCreateBooking(business, call, parameters, res) {
     const callRecord = await upsertCall({
       business_id: business.id,
       vapi_call_id: call?.id,
-      customer_phone: call?.customer?.number
+      customer_phone: call?.customer?.number,
+      from_phone: call?.customer?.number || 'unknown',
+      to_phone: call?.phoneNumber?.number || 'unknown'
     });
+
+    // Get Cal.com integration to get event_type_id
+    const { getCalcomCredentials } = require('../lib/supabase');
+    const calcomIntegration = await getCalcomCredentials(business.id);
+    const eventTypeId = calcomIntegration?.config?.event_type_id || null;
 
     // Store booking in database
     await createBooking({
@@ -414,7 +434,7 @@ async function handleCreateBooking(business, call, parameters, res) {
       call_id: callRecord.id,
       calcom_booking_id: calcomBooking.id,
       calcom_uid: calcomBooking.uid,
-      calcom_event_type_id: business.calcom_event_type_id,
+      calcom_event_type_id: eventTypeId,
       customer_name: name,
       customer_email: email,
       customer_phone: phone || call?.customer?.number,
