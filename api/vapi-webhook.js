@@ -90,7 +90,7 @@ async function handleAssistantRequest(event, res) {
 
   try {
     // Look up business by phone number to customize assistant
-    const business = await getBusinessByPhone(call?.phoneNumber?.number);
+    const business = await getBusinessByPhone(getBusinessPhoneNumber(call));
     
     if (!business) {
       console.warn('⚠️ Business not found for phone:', call?.phoneNumber?.number);
@@ -148,11 +148,11 @@ async function handleStatusUpdate(event, res) {
     status: status,
     from: call?.customer?.number
   });
-  console.log('📞 Vapi call phoneNumber:', call?.phoneNumber);
+  console.log('📞 Vapi business phone:', getBusinessPhoneNumber(call));
 
   try {
     // Find business for this call
-    const business = await getBusinessByPhone(call?.phoneNumber?.number);
+    const business = await getBusinessByPhone(getBusinessPhoneNumber(call));
     if (!business) {
       console.warn('⚠️ Business not found for status update');
       return res.status(200).json({ received: true });
@@ -196,7 +196,7 @@ async function handleTranscript(event, res) {
 
   try {
     // Find business for this call
-    const business = await getBusinessByPhone(call?.phoneNumber?.number);
+    const business = await getBusinessByPhone(getBusinessPhoneNumber(call));
     if (!business) {
       console.warn('⚠️ Business not found for transcript');
       return res.status(200).json({ received: true });
@@ -252,7 +252,7 @@ async function handleFunctionCall(event, res) {
 
   try {
     // Find business for this call
-    const business = await getBusinessByPhone(call?.phoneNumber?.number);
+    const business = await getBusinessByPhone(getBusinessPhoneNumber(call));
     if (!business) {
       return res.status(200).json({
         error: 'Business not configured for bookings'
@@ -298,7 +298,7 @@ async function handleEndOfCallReport(event, res) {
 
   try {
     // Find business for this call
-    const business = await getBusinessByPhone(call?.phoneNumber?.number);
+    const business = await getBusinessByPhone(getBusinessPhoneNumber(call));
     if (!business) {
       console.warn('⚠️ Business not found for end-of-call report');
       return res.status(200).json({ received: true });
@@ -610,6 +610,20 @@ function mapVapiStatus(vapiStatus) {
     'ended': 'completed'
   };
   return statusMap[vapiStatus] || vapiStatus;
+}
+
+/**
+ * Normalize the business phone number from Vapi call payloads.
+ * Vapi often sends the Twilio number as call.phoneNumber.twilioPhoneNumber.
+ */
+function getBusinessPhoneNumber(call) {
+  return (
+    call?.phoneNumber?.number ||
+    call?.phoneNumber?.twilioPhoneNumber ||
+    call?.to?.number ||
+    call?.to ||
+    null
+  );
 }
 
 /**
