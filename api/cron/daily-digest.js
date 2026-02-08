@@ -33,6 +33,7 @@ module.exports = async (req, res) => {
   }
 
   try {
+    const window = (req.query?.window || 'previous-day').toString().toLowerCase();
     const { data: businesses, error } = await supabaseService
       .from('businesses')
       .select('id, name, email, timezone, digest_enabled, digest_time_local, digest_timezone, last_digest_sent_at, active')
@@ -53,10 +54,10 @@ module.exports = async (req, res) => {
 
       try {
         const timeZone = business.digest_timezone || business.timezone || 'America/New_York';
-        if (!shouldSendDigestNow(business, timeZone)) {
+        if (window === 'previous-day' && !shouldSendDigestNow(business, timeZone)) {
           continue;
         }
-        const { startUtc, endUtc, label } = getPreviousDayRangeUtc(timeZone);
+        const { startUtc, endUtc, label } = getDigestRangeUtc(window, timeZone);
 
         const { data: calls, error: callsError } = await supabaseService
           .from('calls')
@@ -269,6 +270,43 @@ function getPreviousDayRangeUtc(timeZone) {
   const label = formatDate(startUtc, timeZone);
 
   return { startUtc, endUtc, label };
+}
+
+function getTodaySoFarRangeUtc(timeZone) {
+  const now = new Date();
+  const parts = getTimeZoneParts(now, timeZone);
+  const startUtc = zonedTimeToUtc(timeZone, {
+    year: parts.year,
+    month: parts.month,
+    day: parts.day,
+    hour: 0,
+    minute: 0,
+    second: 0
+  });
+  const endUtc = now;
+  const label = `${formatDate(startUtc, timeZone)} (today so far)`;
+  return { startUtc, endUtc, label };
+}
+
+function getLast24HoursRangeUtc(timeZone) {
+  const endUtc = new Date();
+  const startUtc = new Date(endUtc.getTime() - 24 * 60 * 60 * 1000);
+  const label = `Last 24 hours (ending ${formatDate(endUtc, timeZone)})`;
+  return { startUtc, endUtc, label };
+}
+
+function getDigestRangeUtc(window, timeZone) {
+  switch (window) {
+    case 'today':
+    case 'today-so-far':
+      return getTodaySoFarRangeUtc(timeZone);
+    case 'last24':
+    case 'last-24-hours':
+      return getLast24HoursRangeUtc(timeZone);
+    case 'previous-day':
+    default:
+      return getPreviousDayRangeUtc(timeZone);
+  }
 }
 
 function getTimeZoneParts(date, timeZone) {
