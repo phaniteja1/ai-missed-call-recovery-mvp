@@ -72,3 +72,23 @@ where id = '<business_uuid>';
 ## Notes
 - The phone number must be **exactly** what Vapi sends (E.164). For Twilio bypass, Vapi sends `call.phoneNumber.twilioPhoneNumber`.
 - For the dashboard, the user must be authenticated (Supabase Auth) and linked in `business_users`.
+
+## Digest Email Setup (Resend + Vercel Cron)
+### Resend (Sandbox OK for MVP)
+- You can use the Resend sandbox sender while testing:
+  - `EMAIL_FROM=onboarding@resend.dev`
+- Set your API key:
+  - `RESEND_API_KEY=...`
+
+### Vercel Cron Secret
+- Create your own secret value (any strong random string).
+- Example generation:
+  ```bash
+  openssl rand -hex 32
+  ```
+- Set this in Vercel:
+  - `CRON_SECRET=<your-random-secret>`
+
+### Dashboard URL
+- Set the dashboard URL for email links:
+  - `DASHBOARD_URL=https://<your-dashboard-domain>`
