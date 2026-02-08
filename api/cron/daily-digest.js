@@ -35,7 +35,7 @@ module.exports = async (req, res) => {
   try {
     const { data: businesses, error } = await supabaseService
       .from('businesses')
-      .select('id, name, email, timezone, digest_enabled, digest_time_local, digest_timezone, active')
+      .select('id, name, email, timezone, digest_enabled, digest_time_local, digest_timezone, last_digest_sent_at, active')
       .eq('digest_enabled', true)
       .eq('active', true);
 
@@ -53,6 +53,9 @@ module.exports = async (req, res) => {
 
       try {
         const timeZone = business.digest_timezone || business.timezone || 'America/New_York';
+        if (!shouldSendDigestNow(business, timeZone)) {
+          continue;
+        }
         const { startUtc, endUtc, label } = getPreviousDayRangeUtc(timeZone);
 
         const { data: calls, error: callsError } = await supabaseService
@@ -88,6 +91,7 @@ module.exports = async (req, res) => {
           continue;
         }
 
+        await markDigestSent(business.id);
         sent += 1;
       } catch (err) {
         console.error('❌ Digest error for business:', business.id, err);
@@ -218,6 +222,38 @@ async function sendEmail({ to, subject, html, text }) {
   return { ok: true };
 }
 
+function shouldSendDigestNow(business, timeZone) {
+  const digestTime = business.digest_time_local || '08:00';
+  const [targetHour, targetMinute] = digestTime.split(':').map((part) => Number(part));
+
+  if (!Number.isFinite(targetHour) || !Number.isFinite(targetMinute)) {
+    return false;
+  }
+
+  const now = new Date();
+  const parts = getTimeZoneParts(now, timeZone);
+  if (parts.hour !== targetHour || parts.minute !== targetMinute) {
+    return false;
+  }
+
+  if (!business.last_digest_sent_at) return true;
+
+  const lastSentKey = getLocalDateKey(new Date(business.last_digest_sent_at), timeZone);
+  const todayKey = getLocalDateKey(now, timeZone);
+  return lastSentKey !== todayKey;
+}
+
+async function markDigestSent(businessId) {
+  const { error } = await supabaseService
+    .from('businesses')
+    .update({ last_digest_sent_at: new Date().toISOString() })
+    .eq('id', businessId);
+
+  if (error) {
+    console.error('❌ Failed to mark digest sent:', error);
+  }
+}
+
 function getPreviousDayRangeUtc(timeZone) {
   const now = new Date();
   const parts = getTimeZoneParts(now, timeZone);
@@ -289,6 +325,23 @@ function zonedTimeToUtc(timeZone, parts) {
   ));
   const offset = getTimeZoneOffset(utcGuess, timeZone);
   return new Date(utcGuess.getTime() - offset);
+}
+
+function getLocalDateKey(date, timeZone) {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+  const parts = dtf.formatToParts(date);
+  const map = {};
+  for (const part of parts) {
+    if (part.type !== 'literal') {
+      map[part.type] = part.value;
+    }
+  }
+  return `${map.year}-${map.month}-${map.day}`;
 }
 
 function formatDate(date, timeZone) {

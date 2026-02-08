@@ -49,6 +49,7 @@ create table if not exists public.businesses (
   digest_enabled boolean not null default true,
   digest_time_local text not null default '08:00',
   digest_timezone text,
+  last_digest_sent_at timestamptz,
 
   active boolean not null default true,
   created_at timestamptz not null default now(),
