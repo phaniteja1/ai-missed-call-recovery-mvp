@@ -44,6 +44,12 @@ create table if not exists public.businesses (
   vapi_assistant_id text,
   vapi_phone_number_id text,
 
+  -- Feature flags / preferences
+  calcom_enabled boolean not null default false,
+  digest_enabled boolean not null default true,
+  digest_time_local text not null default '08:00',
+  digest_timezone text,
+
   active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

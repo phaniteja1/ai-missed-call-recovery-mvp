@@ -93,7 +93,7 @@ async function handleAssistantRequest(event, res) {
     const business = await getBusinessByPhone(getBusinessPhoneNumber(call));
     
     if (!business) {
-      console.warn('⚠️ Business not found for phone:', call?.phoneNumber?.number);
+      console.warn('⚠️ Business not found for phone:', getBusinessPhoneNumber(call));
       // Return default assistant config
       return res.status(200).json({
         assistant: getDefaultAssistantConfig()
@@ -108,7 +108,7 @@ async function handleAssistantRequest(event, res) {
       vapi_call_id: call?.id,
       customer_phone: call?.customer?.number,
       from_phone: call?.customer?.number || 'unknown',
-      to_phone: call?.phoneNumber?.number || 'unknown',
+      to_phone: getBusinessPhoneNumber(call) || 'unknown',
       status: 'queued',
       direction: 'inbound',
       metadata: {
@@ -119,7 +119,7 @@ async function handleAssistantRequest(event, res) {
     // Check if Cal.com is connected via business_integrations
     const { getCalcomCredentials } = require('../lib/supabase');
     const calcomIntegration = await getCalcomCredentials(business.id);
-    const hasCalcom = calcomIntegration && calcomIntegration.access_token;
+    const hasCalcom = !!(business.calcom_enabled && calcomIntegration && calcomIntegration.access_token);
 
     // Return assistant config with booking functions if Cal.com is connected
     const assistantConfig = hasCalcom
@@ -164,7 +164,7 @@ async function handleStatusUpdate(event, res) {
       vapi_call_id: call?.id,
       customer_phone: call?.customer?.number,
       from_phone: call?.customer?.number || 'unknown',
-      to_phone: call?.phoneNumber?.number || 'unknown',
+      to_phone: getBusinessPhoneNumber(call) || 'unknown',
       status: mapVapiStatus(status),
       started_at: call?.startedAt ? new Date(call.startedAt).toISOString() : null,
       metadata: {
@@ -208,7 +208,7 @@ async function handleTranscript(event, res) {
       vapi_call_id: call?.id,
       customer_phone: call?.customer?.number,
       from_phone: call?.customer?.number || 'unknown',
-      to_phone: call?.phoneNumber?.number || 'unknown'
+      to_phone: getBusinessPhoneNumber(call) || 'unknown'
     });
 
     // Track sequence number for this call
@@ -256,6 +256,21 @@ async function handleFunctionCall(event, res) {
     if (!business) {
       return res.status(200).json({
         error: 'Business not configured for bookings'
+      });
+    }
+
+    // Cal.com is gated behind a per-business toggle
+    if (!business.calcom_enabled) {
+      return res.status(200).json({
+        result: "Scheduling isn't available right now. Can I take a message for you?"
+      });
+    }
+
+    const { getCalcomCredentials } = require('../lib/supabase');
+    const calcomIntegration = await getCalcomCredentials(business.id);
+    if (!calcomIntegration || !calcomIntegration.access_token) {
+      return res.status(200).json({
+        result: "Scheduling isn't available right now. Can I take a message for you?"
       });
     }
 
@@ -310,7 +325,7 @@ async function handleEndOfCallReport(event, res) {
       vapi_call_id: call?.id,
       customer_phone: call?.customer?.number,
       from_phone: call?.customer?.number || 'unknown',
-      to_phone: call?.phoneNumber?.number || 'unknown',
+      to_phone: getBusinessPhoneNumber(call) || 'unknown',
       status: 'completed',
       started_at: call?.startedAt ? new Date(call.startedAt).toISOString() : null,
       ended_at: call?.endedAt ? new Date(call.endedAt).toISOString() : null,
@@ -421,7 +436,7 @@ async function handleCreateBooking(business, call, parameters, res) {
       vapi_call_id: call?.id,
       customer_phone: call?.customer?.number,
       from_phone: call?.customer?.number || 'unknown',
-      to_phone: call?.phoneNumber?.number || 'unknown'
+      to_phone: getBusinessPhoneNumber(call) || 'unknown'
     });
 
     // Get Cal.com integration to get event_type_id
