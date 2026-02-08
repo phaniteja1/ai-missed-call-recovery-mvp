@@ -178,20 +178,59 @@ function buildDigestEmail({ business, recipient, timeZone, label, calls, stats }
     dashboardLink ? `Dashboard: ${dashboardLink}` : ''
   ].filter(Boolean).join('\n');
 
+  const tableRows = keyCalls.length
+    ? keyCalls.map((c) => {
+        const [time, from, status, summary] = c.split(' | ');
+        return `
+          <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;">${escapeHtml(time || '')}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;">${escapeHtml(from || '')}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;">${escapeHtml(status || '')}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;">${escapeHtml(summary || '')}</td>
+          </tr>
+        `;
+      }).join('')
+    : `
+      <tr>
+        <td colspan="4" style="padding: 8px; text-align: center; color: #666;">No calls recorded.</td>
+      </tr>
+    `;
+
   const html = `
     <div style="font-family: Arial, sans-serif; color: #111; line-height: 1.5;">
-      <h2>Daily Call Digest</h2>
-      <p><strong>${business.name}</strong></p>
-      <p>Date: ${label} (${timeZone})</p>
+      <h2 style="margin-bottom: 4px;">Daily Call Digest</h2>
+      <p style="margin: 0;"><strong>${escapeHtml(business.name)}</strong></p>
+      <p style="margin-top: 4px;">Date: ${escapeHtml(label)} (${escapeHtml(timeZone)})</p>
       <hr />
-      <p><strong>Total calls:</strong> ${stats.total}</p>
-      <p><strong>Missed calls:</strong> ${stats.missed}</p>
-      <p><strong>Top intents:</strong> ${topIntents || 'None'}</p>
-      <h3>Key calls</h3>
-      <ul>
-        ${keyCalls.length ? keyCalls.map((c) => `<li>${escapeHtml(c)}</li>`).join('') : '<li>No calls recorded.</li>'}
-      </ul>
-      ${dashboardLink ? `<p><a href="${dashboardLink}">Open dashboard</a></p>` : ''}
+      <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px;">
+        <div style="background: #f8f8f8; padding: 10px; border-radius: 8px;">
+          <div style="font-size: 12px; color: #666;">Total Calls</div>
+          <div style="font-size: 20px; font-weight: 700;">${stats.total}</div>
+        </div>
+        <div style="background: #f8f8f8; padding: 10px; border-radius: 8px;">
+          <div style="font-size: 12px; color: #666;">Missed Calls</div>
+          <div style="font-size: 20px; font-weight: 700;">${stats.missed}</div>
+        </div>
+        <div style="background: #f8f8f8; padding: 10px; border-radius: 8px;">
+          <div style="font-size: 12px; color: #666;">Top Intents</div>
+          <div style="font-size: 14px; font-weight: 600;">${escapeHtml(topIntents || 'None')}</div>
+        </div>
+      </div>
+      <h3 style="margin-bottom: 8px;">Key calls</h3>
+      <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+        <thead>
+          <tr style="text-align: left; background: #fafafa;">
+            <th style="padding: 8px; border-bottom: 1px solid #eee;">Time</th>
+            <th style="padding: 8px; border-bottom: 1px solid #eee;">Caller</th>
+            <th style="padding: 8px; border-bottom: 1px solid #eee;">Status</th>
+            <th style="padding: 8px; border-bottom: 1px solid #eee;">Summary</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${tableRows}
+        </tbody>
+      </table>
+      ${dashboardLink ? `<p style="margin-top: 16px;"><a href="${dashboardLink}">Open dashboard</a></p>` : ''}
     </div>
   `;
 
