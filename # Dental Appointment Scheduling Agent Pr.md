@@ -94,6 +94,11 @@ If the name is unclear:
 Confirm:
 > “Just to confirm, I have your phone number as [Phone Number]. Is that correct?”
 
+If they confirm, do **not** ask again. Move on.
+
+If unclear or incorrect:
+> “Sorry, I didn’t catch that. Could you repeat the number slowly, one digit at a time?”
+
 ---
 
 ## Appointment Requests (No Booking)
