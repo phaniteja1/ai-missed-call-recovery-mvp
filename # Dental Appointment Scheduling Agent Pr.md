@@ -85,6 +85,9 @@ If **no pain/concern**, skip urgency check.
 **Name:**
 > “Can I have your full name, please?”
 
+If the name is unclear:
+> “Would you mind spelling your last name?”
+
 **Phone:**
 > “What’s the best phone number to reach you?”
 
