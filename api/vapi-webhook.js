@@ -125,16 +125,20 @@ async function handleAssistantRequest(event, res) {
     const hasCalcom = !!(business.calcom_enabled && calcomIntegration?.access_token);
 
     // Build appropriate config
+    // TODO: Get voice preference from business.ai_config in the future
+    const voiceOptions = { voicePreset: 'tara' }; // Using Tara (VAPI voice) as default
+    
     let config;
     if (hasCalcom) {
-      config = buildBookingConfig(business, calcomIntegration);
-      console.log('✅ Booking config generated with Cal.com');
+      config = buildBookingConfig(business, calcomIntegration, voiceOptions);
+      console.log('✅ Booking config generated with Cal.com + Tara voice');
     } else {
       config = buildAssistantConfig(business, {
         type: ASSISTANT_TYPES.BASIC,
-        enableBooking: false
+        enableBooking: false,
+        ...voiceOptions
       });
-      console.log('✅ Basic config generated');
+      console.log('✅ Basic config generated with Tara voice');
     }
 
     // Debug: Log the generated prompt (remove in production)

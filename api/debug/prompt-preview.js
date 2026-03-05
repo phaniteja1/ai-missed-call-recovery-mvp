@@ -57,16 +57,17 @@ module.exports = async (req, res) => {
     // Determine config type
     const configType = type || (hasCalcom ? 'booking' : 'basic');
 
-    // Build configs
+    // Build configs with voice preference
+    const voiceOptions = { voicePreset: voice };
     let config;
     if (configType === 'booking' && hasCalcom) {
-      config = buildBookingConfig(business, calcomIntegration);
+      config = buildBookingConfig(business, calcomIntegration, voiceOptions);
     } else if (configType === 'basic') {
-      config = buildBasicConfig(business);
+      config = buildBasicConfig(business, voiceOptions);
     } else {
       config = buildAssistantConfig(business, {
         enableBooking: configType === 'booking',
-        voicePreset: voice
+        ...voiceOptions
       });
     }
 
