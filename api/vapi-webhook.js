@@ -91,9 +91,10 @@ module.exports = async (req, res) => {
  */
 async function handleAssistantRequest(event, res) {
   const { call } = event.message;
-  const phoneNumber = getBusinessPhoneNumber(call);
   
-  console.log('🤖 Assistant request for:', phoneNumber);
+  const phoneNumber = getBusinessPhoneNumber(call, event.message);
+  
+  console.log('🤖 Assistant request for phone:', phoneNumber);
 
   try {
     // Look up business
@@ -161,7 +162,7 @@ async function handleAssistantRequest(event, res) {
  */
 async function handleStatusUpdate(event, res) {
   const { call, status } = event.message;
-  const phoneNumber = getBusinessPhoneNumber(call);
+  const phoneNumber = getBusinessPhoneNumber(call, event.message);
 
   console.log('📊 Status update:', { callId: call?.id, status });
 
@@ -194,7 +195,7 @@ async function handleStatusUpdate(event, res) {
  */
 async function handleTranscript(event, res) {
   const { call, transcript, role } = event.message;
-  const phoneNumber = getBusinessPhoneNumber(call);
+  const phoneNumber = getBusinessPhoneNumber(call, event.message);
 
   console.log('💬 Transcript:', { 
     callId: call?.id, 
@@ -241,7 +242,7 @@ async function handleTranscript(event, res) {
 async function handleFunctionCall(event, res) {
   const { call, functionCall } = event.message;
   const { name, parameters } = functionCall;
-  const phoneNumber = getBusinessPhoneNumber(call);
+  const phoneNumber = getBusinessPhoneNumber(call, event.message);
 
   console.log('🔧 Function call:', { name, parameters });
 
@@ -294,7 +295,7 @@ async function handleFunctionCall(event, res) {
  */
 async function handleEndOfCallReport(event, res) {
   const { call, endedReason, summary, transcript, recording, analysis } = event.message;
-  const phoneNumber = getBusinessPhoneNumber(call);
+  const phoneNumber = getBusinessPhoneNumber(call, event.message);
 
   console.log('📋 End of call:', { 
     callId: call?.id, 
@@ -398,7 +399,7 @@ async function handleCreateBooking(business, call, parameters, res) {
       vapi_call_id: call?.id,
       customer_phone: call?.customer?.number,
       from_phone: call?.customer?.number || 'unknown',
-      to_phone: getBusinessPhoneNumber(call) || 'unknown'
+      to_phone: getBusinessPhoneNumber(call, event.message) || 'unknown'
     });
 
     // Get Cal.com integration for event type
@@ -445,14 +446,26 @@ async function handleCreateBooking(business, call, parameters, res) {
 // HELPERS
 // ============================================================
 
-function getBusinessPhoneNumber(call) {
-  return (
-    call?.phoneNumber?.number ||
-    call?.phoneNumber?.twilioPhoneNumber ||
-    call?.to?.number ||
-    call?.to ||
-    null
-  );
+function getBusinessPhoneNumber(call, message = null) {
+  // VAPI sends phone number in different locations depending on configuration
+  const possibleNumbers = [
+    message?.phoneNumber?.number,           // New VAPI format (message level)
+    message?.phoneNumber?.twilioPhoneNumber,
+    call?.phoneNumber?.twilioPhoneNumber,   // Old formats (call level)
+    call?.phoneNumber?.number,
+    call?.to?.number,
+    call?.to,
+  ];
+  
+  // Find first valid phone number (starts with +)
+  for (const num of possibleNumbers) {
+    if (num && typeof num === 'string' && num.startsWith('+')) {
+      return num;
+    }
+  }
+  
+  console.warn('⚠️ Could not extract phone number from VAPI payload');
+  return null;
 }
 
 function mapVapiStatus(vapiStatus) {
