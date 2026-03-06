@@ -87,14 +87,23 @@ module.exports = async (req, res) => {
 // ============================================================
 
 /**
+ * Check if this is a test call (should skip DB operations)
+ */
+function isTestCall(call) {
+  const callId = call?.id || '';
+  return callId.startsWith('test-') || callId.startsWith('debug-');
+}
+
+/**
  * Handle assistant-request: Return dynamic assistant configuration
  */
 async function handleAssistantRequest(event, res) {
   const { call } = event.message;
   
   const phoneNumber = getBusinessPhoneNumber(call, event.message);
+  const testMode = isTestCall(call);
   
-  console.log('🤖 Assistant request for phone:', phoneNumber);
+  console.log('🤖 Assistant request for phone:', phoneNumber, testMode ? '(TEST MODE - no DB write)' : '');
 
   try {
     // Look up business
@@ -109,17 +118,21 @@ async function handleAssistantRequest(event, res) {
 
     console.log('✅ Found business:', business.name);
 
-    // Create initial call record
-    await upsertCall({
-      business_id: business.id,
-      vapi_call_id: call?.id,
-      customer_phone: call?.customer?.number,
-      from_phone: call?.customer?.number || 'unknown',
-      to_phone: phoneNumber || 'unknown',
-      status: 'queued',
-      direction: 'inbound',
-      metadata: { vapi_call: call }
-    });
+    // Only create call record for real calls (not test calls)
+    if (!testMode) {
+      await upsertCall({
+        business_id: business.id,
+        vapi_call_id: call?.id,
+        customer_phone: call?.customer?.number,
+        from_phone: call?.customer?.number || 'unknown',
+        to_phone: phoneNumber || 'unknown',
+        status: 'queued',
+        direction: 'inbound',
+        metadata: { vapi_call: call }
+      });
+    } else {
+      console.log('🧪 Test call - skipping DB insert');
+    }
 
     // Check Cal.com integration
     const calcomIntegration = await getCalcomCredentials(business.id);
@@ -163,12 +176,18 @@ async function handleAssistantRequest(event, res) {
 async function handleStatusUpdate(event, res) {
   const { call, status } = event.message;
   const phoneNumber = getBusinessPhoneNumber(call, event.message);
+  const testMode = isTestCall(call);
 
-  console.log('📊 Status update:', { callId: call?.id, status });
+  console.log('📊 Status update:', { callId: call?.id, status, testMode });
 
   try {
     const business = await getBusinessByPhone(phoneNumber);
     if (!business) {
+      return res.status(200).json({ received: true });
+    }
+
+    if (testMode) {
+      console.log('🧪 Test call - skipping DB update');
       return res.status(200).json({ received: true });
     }
 
@@ -196,16 +215,23 @@ async function handleStatusUpdate(event, res) {
 async function handleTranscript(event, res) {
   const { call, transcript, role } = event.message;
   const phoneNumber = getBusinessPhoneNumber(call, event.message);
+  const testMode = isTestCall(call);
 
   console.log('💬 Transcript:', { 
     callId: call?.id, 
     role,
-    text: transcript?.substring(0, 50) + '...'
+    text: transcript?.substring(0, 50) + '...',
+    testMode
   });
 
   try {
     const business = await getBusinessByPhone(phoneNumber);
     if (!business) {
+      return res.status(200).json({ received: true });
+    }
+
+    if (testMode) {
+      console.log('🧪 Test call - skipping DB insert');
       return res.status(200).json({ received: true });
     }
 
@@ -296,16 +322,23 @@ async function handleFunctionCall(event, res) {
 async function handleEndOfCallReport(event, res) {
   const { call, endedReason, summary, transcript, recording, analysis } = event.message;
   const phoneNumber = getBusinessPhoneNumber(call, event.message);
+  const testMode = isTestCall(call);
 
   console.log('📋 End of call:', { 
     callId: call?.id, 
     duration: call?.duration,
-    reason: endedReason 
+    reason: endedReason,
+    testMode
   });
 
   try {
     const business = await getBusinessByPhone(phoneNumber);
     if (!business) {
+      return res.status(200).json({ received: true });
+    }
+
+    if (testMode) {
+      console.log('🧪 Test call - skipping DB update');
       return res.status(200).json({ received: true });
     }
 
