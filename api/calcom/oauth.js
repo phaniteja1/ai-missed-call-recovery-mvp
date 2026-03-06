@@ -134,11 +134,17 @@ module.exports = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Error in Cal.com OAuth:', error);
+    console.error('❌ Error in Cal.com OAuth:', {
+      message: error.message,
+      response: error.response?.data,
+      status: error.response?.status,
+      url: error.config?.url
+    });
 
     return res.status(500).json({
       error: 'OAuth failed',
-      message: error.message
+      message: error.message,
+      details: error.response?.data || 'No additional details'
     });
   }
 };
