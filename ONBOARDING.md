@@ -28,8 +28,8 @@ Run these inserts in Supabase SQL Editor.
 
 ### 3.2 Create business record
 ```sql
-insert into businesses (name, email, timezone)
-values ('Dental Clinic', 'owner@mybiz.com', 'America/New_York')
+insert into businesses (name, email, timezone, appointment_handling_enabled)
+values ('Dental Clinic', 'owner@mybiz.com', 'America/New_York', true)
 returning id;
 ```
 
@@ -54,24 +54,42 @@ set digest_enabled = true
 where id = '<business_uuid>';
 ```
 
-## 5) (Optional) Enable Cal.com Scheduling
+## 5) Enable Appointment Handling
+If the AI should help with appointment-related calls, enable:
+```sql
+update businesses
+set appointment_handling_enabled = true
+where id = '<business_uuid>';
+```
+
+Set this to `false` for businesses where the AI should not discuss or collect appointment requests.
+
+## 6) (Optional) Enable Cal.com Scheduling
 Cal.com is **disabled by default** for MVP.
-To enable per business:
+To enable direct booking per business:
 ```sql
 update businesses
 set calcom_enabled = true
 where id = '<business_uuid>';
 ```
 
-## 6) Verify End-to-End
+Direct booking requires both:
+- `appointment_handling_enabled = true`
+- `calcom_enabled = true`
+
+If `appointment_handling_enabled = true` but Cal.com is not enabled, the prompt will fall back to callback-style appointment handling.
+
+## 7) Verify End-to-End
 - Call the Twilio number and confirm:
   - Vapi handles the call.
   - Call appears in Supabase `calls` and `call_transcripts`.
+  - Prompt behavior matches the business type and appointment settings.
 - Check digest logs after the next cron run.
 
 ## Notes
 - The phone number must be **exactly** what Vapi sends (E.164). For Twilio bypass, Vapi sends `call.phoneNumber.twilioPhoneNumber`.
 - For the dashboard, the user must be authenticated (Supabase Auth) and linked in `business_users`.
+- Use one shared Vapi assistant with Server URL set to `/api/vapi-webhook`; business-specific behavior is generated dynamically from the database.
 
 ## Digest Email Setup (Resend + Vercel Cron)
 ### Resend (Sandbox OK for MVP)

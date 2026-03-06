@@ -61,11 +61,11 @@ You have two options for connecting Twilio to Vapi:
 You have two options:
 
 **Option A: Use Dynamic Assistant (Recommended for MVP)**
-- Skip creating an assistant in Vapi dashboard
-- The webhook will send assistant configuration dynamically
-- Edit `/api/vapi-webhook.js` to customize the AI behavior
-- **Pros:** Easy to iterate, change personality/voice in code
-- **Cons:** Slightly more complex code
+- Use one shared assistant in Vapi with Server URL pointing to `/api/vapi-webhook`
+- The backend will send assistant configuration dynamically per business
+- Customize AI behavior in `lib/prompts/*` and `lib/vapi/*`
+- **Pros:** Multi-tenant, business-specific behavior from code and database
+- **Cons:** Slightly more backend coordination
 
 **Option B: Create Assistant in Vapi Dashboard**
 1. In Vapi Dashboard, go to **Assistants** → **Create Assistant**
@@ -91,6 +91,9 @@ After deploying to Vercel (Step 3 below), you'll set:
 1. Go to Vapi Dashboard → **Settings** → **Server URL**
 2. Enter: `https://your-project.vercel.app/api/vapi-webhook`
 3. This allows Vapi to send you call events (transcripts, summaries, etc.)
+
+Current production URL:
+- `https://ai-missed-call-recovery-mvp.vercel.app/api/vapi-webhook`
 
 ## 🛠️ Setup Instructions
 
@@ -191,6 +194,12 @@ This allows you to receive:
 - End-of-call summaries
 - Function call requests
 
+Business-specific prompt behavior is generated dynamically from Supabase using:
+- inbound phone number lookup
+- `appointment_handling_enabled`
+- `calcom_enabled`
+- prompt/config fields stored on the business record
+
 ### 6. Test Your AI Assistant! 🎉
 
 Call your Twilio phone number! You should hear the AI assistant greet you:
@@ -219,12 +228,16 @@ vercel logs --follow
 ```
 ├── api/
 │   ├── webhook.js           # Main Twilio webhook → Vapi integration
-│   ├── vapi-webhook.js      # Vapi event handler (transcripts, analytics)
+│   ├── vapi-webhook.js      # Vapi event handler (transcripts, analytics, dynamic config)
+│   ├── debug/prompt-preview.js # Prompt/config preview endpoint
 │   ├── handle-speech.js     # [Legacy] Speech input handler
 │   ├── handle-recording.js  # [Legacy] Voicemail recordings
 │   ├── transcription.js     # [Legacy] Transcription callbacks
 │   └── status.js            # Health check endpoint
 ├── lib/
+│   ├── prompts/             # Prompt templates and builders
+│   ├── vapi/                # Assistant config and function definitions
+│   ├── supabase.js          # Business lookup and persistence
 │   └── twilio.js            # Twilio helper utilities
 ├── .env.example             # Environment variables template
 ├── .gitignore              # Git ignore rules
