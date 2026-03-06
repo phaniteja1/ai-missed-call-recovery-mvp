@@ -58,15 +58,22 @@ module.exports = async (req, res) => {
     const configType = type || (hasCalcom ? 'booking' : 'basic');
 
     // Build configs with voice preference
-    const voiceOptions = { voicePreset: voice };
+    const voiceOptions = {
+      voicePreset: voice,
+      appointmentHandlingEnabled: business.appointment_handling_enabled
+    };
     let config;
     if (configType === 'booking' && hasCalcom) {
       config = buildBookingConfig(business, calcomIntegration, voiceOptions);
     } else if (configType === 'basic') {
-      config = buildBasicConfig(business, voiceOptions);
+      config = buildBasicConfig(business, {
+        ...voiceOptions,
+        enableCallback: business.appointment_handling_enabled
+      });
     } else {
       config = buildAssistantConfig(business, {
         enableBooking: configType === 'booking',
+        enableCallback: business.appointment_handling_enabled,
         ...voiceOptions
       });
     }
@@ -79,6 +86,8 @@ module.exports = async (req, res) => {
     if (enhanced === 'true') {
       enhancedPrompt = buildSystemPrompt(business, {
         enableBooking: hasCalcom,
+        enableCallback: business.appointment_handling_enabled,
+        appointmentHandlingEnabled: business.appointment_handling_enabled,
         personality: 'the AI receptionist',
         tone: 'Warm, professional, and helpful'
       });
@@ -97,6 +106,7 @@ module.exports = async (req, res) => {
         name: business.name,
         timezone: business.timezone,
         calcom_enabled: business.calcom_enabled,
+        appointment_handling_enabled: business.appointment_handling_enabled,
         business_hours: business.business_hours
       },
       generated: {

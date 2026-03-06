@@ -140,7 +140,10 @@ async function handleAssistantRequest(event, res) {
 
     // Build appropriate config
     // TODO: Get voice preference from business.ai_config in the future
-    const voiceOptions = { voicePreset: 'tara' }; // Using Tara (VAPI voice) as default
+    const voiceOptions = {
+      voicePreset: 'tara',
+      appointmentHandlingEnabled: business.appointment_handling_enabled
+    }; // Using Tara (VAPI voice) as default
     
     let config;
     if (hasCalcom) {
@@ -150,6 +153,7 @@ async function handleAssistantRequest(event, res) {
       config = buildAssistantConfig(business, {
         type: ASSISTANT_TYPES.BASIC,
         enableBooking: false,
+        enableCallback: business.appointment_handling_enabled,
         ...voiceOptions
       });
       console.log('✅ Basic config generated with Tara voice');
