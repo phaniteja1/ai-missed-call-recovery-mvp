@@ -31,6 +31,7 @@ const {
   buildBookingConfig,
   ASSISTANT_TYPES
 } = require('../lib/vapi');
+const { APP_TIME_ZONE, getCurrentDateInAppTimeZone } = require('../lib/time');
 
 // Transcript sequence tracking (in-memory, per-instance)
 const transcriptSequences = new Map();
@@ -496,16 +497,13 @@ async function handleCheckAvailability(business, parameters) {
   
   console.log('📅 Checking availability:', { date, timePreference, business: business.name });
 
-  const businessTimezone = business.timezone || 'America/New_York';
-  const todayInBusinessTimezone = new Date().toLocaleDateString('en-CA', {
-    timeZone: businessTimezone
-  });
+  const todayInBusinessTimezone = getCurrentDateInAppTimeZone();
 
   if (!date || date < todayInBusinessTimezone) {
     console.warn('⚠️ Rejecting past availability date:', {
       requestedDate: date,
       todayInBusinessTimezone,
-      businessTimezone
+      businessTimezone: APP_TIME_ZONE
     });
 
     return {
@@ -524,7 +522,7 @@ async function handleCheckAvailability(business, parameters) {
           hour: 'numeric',
           minute: '2-digit',
           hour12: true,
-          timeZone: business.timezone || 'America/New_York'
+          timeZone: APP_TIME_ZONE
         })
       );
 
@@ -614,7 +612,7 @@ async function handleCreateBooking(business, call, parameters) {
       hour: 'numeric',
       minute: '2-digit',
       hour12: true,
-      timeZone: business.timezone || 'America/New_York'
+      timeZone: APP_TIME_ZONE
     });
 
     return {

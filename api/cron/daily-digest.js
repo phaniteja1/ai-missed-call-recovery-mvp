@@ -4,6 +4,7 @@
  */
 
 const { supabaseService } = require('../../lib/supabase');
+const { APP_TIME_ZONE } = require('../../lib/time');
 
 const CRON_SECRET = process.env.CRON_SECRET;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
@@ -53,7 +54,7 @@ module.exports = async (req, res) => {
       processed += 1;
 
       try {
-        const timeZone = business.digest_timezone || business.timezone || 'America/New_York';
+        const timeZone = APP_TIME_ZONE;
         if (window === 'previous-day' && !shouldSendDigestNow(business, timeZone)) {
           continue;
         }

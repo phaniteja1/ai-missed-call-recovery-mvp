@@ -3,11 +3,7 @@
  */
 const { getBusinessByPhone, getCalcomCredentials } = require('../../lib/supabase');
 const { checkAvailability } = require('../../lib/calcom');
-
-function getNextDateForTimeZone(timeZone) {
-  const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
-  return tomorrow.toLocaleDateString('en-CA', { timeZone });
-}
+const { APP_TIME_ZONE, getTomorrowDateInAppTimeZone } = require('../../lib/time');
 
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -33,14 +29,14 @@ module.exports = async function handler(req, res) {
     }
     
     const eventTypeId = credentials.config?.event_type_id;
-    const timeZone = business.timezone || 'America/New_York';
+    const timeZone = APP_TIME_ZONE;
 
     if (requestedDate && !/^\d{4}-\d{2}-\d{2}$/.test(requestedDate)) {
       return res.status(400).json({ error: 'Invalid date parameter. Use YYYY-MM-DD.' });
     }
     
     // 3. Test availability
-    const dateStr = requestedDate || getNextDateForTimeZone(timeZone);
+    const dateStr = requestedDate || getTomorrowDateInAppTimeZone();
     
     let slots = [];
     let slotsError = null;

@@ -21,6 +21,7 @@ const {
   validateConfig 
 } = require('../../lib/vapi');
 const { buildSystemPrompt } = require('../../lib/prompts');
+const { APP_TIME_ZONE } = require('../../lib/time');
 
 module.exports = async (req, res) => {
   // Basic auth check - require secret in production
@@ -104,7 +105,7 @@ module.exports = async (req, res) => {
       business: {
         id: business.id,
         name: business.name,
-        timezone: business.timezone,
+        timezone: APP_TIME_ZONE,
         calcom_enabled: business.calcom_enabled,
         appointment_handling_enabled: business.appointment_handling_enabled,
         business_hours: business.business_hours

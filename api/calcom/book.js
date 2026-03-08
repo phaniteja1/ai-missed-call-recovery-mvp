@@ -25,6 +25,7 @@
 
 const { createCalcomBooking } = require('../../lib/calcom');
 const { createBooking, getBusinessById, getCalcomCredentials } = require('../../lib/supabase');
+const { APP_TIME_ZONE } = require('../../lib/time');
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
@@ -142,7 +143,7 @@ module.exports = async (req, res) => {
       hour: 'numeric',
       minute: '2-digit',
       hour12: true,
-      timeZone: business?.timezone || 'America/New_York'
+      timeZone: APP_TIME_ZONE
     });
 
     return res.status(201).json({

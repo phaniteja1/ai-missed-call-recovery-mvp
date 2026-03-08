@@ -21,6 +21,7 @@
 
 const { checkAvailability } = require('../../lib/calcom');
 const { getBusinessById } = require('../../lib/supabase');
+const { APP_TIME_ZONE } = require('../../lib/time');
 
 module.exports = async (req, res) => {
   if (req.method !== 'GET') {
@@ -74,7 +75,7 @@ module.exports = async (req, res) => {
       checkAvailability(businessId, date, timePreference),
       getBusinessById(businessId)
     ]);
-    const timeZone = business?.timezone || 'America/New_York';
+    const timeZone = APP_TIME_ZONE;
 
     // Format response
     const formattedSlots = slots.map(slot => {
