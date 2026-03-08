@@ -1,134 +1,149 @@
 /**
- * Debug Endpoint: Test Cal.com Connection
- * 
- * Tests if Cal.com OAuth and API calls are working
- * 
- * Usage: GET /api/debug/test-calcom?phone=+19846007391
+ * Debug endpoint to test Cal.com connection
  */
+import { createClient } from '@supabase/supabase-js';
+import axios from 'axios';
 
-const { getCalcomCredentials } = require('../../lib/supabase');
-const { getEventTypes, checkAvailability } = require('../../lib/calcom');
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY
+);
 
-module.exports = async (req, res) => {
-  if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' });
+export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  
+  const phone = req.query.phone;
+  
+  console.log('🔍 Testing Cal.com connection for phone:', phone);
+  
+  if (!phone) {
+    return res.status(400).json({ error: 'Missing phone parameter' });
   }
-
-  // Basic auth check
-  if (process.env.NODE_ENV === 'production') {
-    const secret = req.query.secret || req.headers['x-debug-secret'];
-    if (secret !== process.env.DEBUG_SECRET) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
-  }
-
-  const phone = req.query.phone || '+19846007391';
-  const testDate = req.query.date || new Date().toISOString().split('T')[0];
-
-  console.log('🔍 Testing Cal.com connection for:', phone);
-
+  
   try {
-    // Step 1: Get business by phone
-    const { getBusinessByPhone } = require('../../lib/supabase');
-    const business = await getBusinessByPhone(phone);
+    // 1. Get business by phone
+    const { data: phoneData, error: phoneError } = await supabase
+      .from('business_phone_numbers')
+      .select('business_id, phone_number')
+      .eq('phone_number', phone)
+      .single();
     
-    if (!business) {
-      return res.status(404).json({
-        error: 'Business not found',
-        phone
-      });
+    if (phoneError || !phoneData) {
+      return res.status(404).json({ error: 'Business not found', phoneError });
     }
-
-    console.log('✅ Business found:', business.name);
-
-    // Step 2: Check Cal.com credentials
-    console.log('🔍 Checking Cal.com credentials...');
-    const credentials = await getCalcomCredentials(business.id);
     
-    if (!credentials) {
-      return res.status(400).json({
-        error: 'Cal.com not connected',
-        message: 'No credentials found for this business',
-        business: business.name
-      });
+    const businessId = phoneData.business_id;
+    console.log('✅ Business found:', businessId);
+    
+    // 2. Get Cal.com credentials
+    const { data: integration, error: integError } = await supabase
+      .from('business_integrations')
+      .select('*')
+      .eq('business_id', businessId)
+      .eq('integration_type', 'calcom')
+      .single();
+    
+    if (integError || !integration) {
+      return res.status(404).json({ error: 'Cal.com integration not found', integError });
     }
-
-    const hasAccessToken = !!credentials.access_token;
-    const hasRefreshToken = !!credentials.refresh_token;
-    const eventTypeId = credentials.config?.event_type_id || credentials.calcom_event_type_id;
-
-    console.log('✅ Credentials found:', {
-      hasAccessToken,
-      hasRefreshToken,
-      eventTypeId
-    });
-
-    // Step 3: Test fetching event types (verifies token works)
-    console.log('🔍 Testing API call - fetching event types...');
-    let eventTypes = [];
-    let eventTypesError = null;
     
+    const credentials = {
+      access_token: integration.access_token,
+      refresh_token: integration.refresh_token,
+      token_expires_at: integration.token_expires_at,
+      config: integration.config || {},
+      time_zone: integration.time_zone || 'America/New_York'
+    };
+    
+    const eventTypeId = credentials.config?.event_type_id;
+    
+    console.log('✅ Credentials found, event_type_id:', eventTypeId);
+    console.log('   Token expires at:', credentials.token_expires_at);
+    
+    // 3. Test access token validity
+    let tokenValid = false;
+    let userInfo = null;
     try {
-      const result = await getEventTypes(business.id);
-      // Ensure it's an array
-      eventTypes = Array.isArray(result) ? result : [];
-      console.log('✅ Event types fetched:', eventTypes.length);
-    } catch (err) {
-      console.error('❌ Event types failed:', err.message);
-      eventTypesError = err.message;
+      const meResponse = await axios.get('https://api.cal.com/v2/me', {
+        headers: { Authorization: `Bearer ${credentials.access_token}` }
+      });
+      tokenValid = meResponse.status === 200;
+      userInfo = meResponse.data?.data;
+      console.log('✅ Access token is valid, user:', userInfo?.name);
+    } catch (error) {
+      console.log('❌ Access token invalid:', error.response?.status, error.response?.data?.message);
     }
-
-    // Step 4: Test fetching availability
-    console.log('🔍 Testing availability check for:', testDate);
-    let availability = [];
-    let availabilityError = null;
     
+    // 4. Test availability API (authenticated endpoint)
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const dateStr = tomorrow.toISOString().split('T')[0]; // YYYY-MM-DD
+    
+    let slots = [];
+    let slotsError = null;
     try {
-      availability = await checkAvailability(business.id, testDate, 'any');
-      console.log('✅ Availability found:', availability.length, 'slots');
-    } catch (err) {
-      console.error('❌ Availability check failed:', err.message);
-      availabilityError = err.message;
+      const startDate = new Date(tomorrow);
+      startDate.setHours(0, 0, 0, 0);
+      const endDate = new Date(tomorrow);
+      endDate.setHours(23, 59, 59, 999);
+      
+      const url = 'https://api.cal.com/v2/slots';
+      const params = {
+        eventTypeId: parseInt(eventTypeId, 10),
+        start: startDate.toISOString(),
+        end: endDate.toISOString()
+      };
+      
+      console.log('📅 Testing slots API:', url);
+      console.log('   Params:', JSON.stringify(params));
+      
+      const response = await axios.get(url, {
+        headers: { Authorization: `Bearer ${credentials.access_token}` },
+        params
+      });
+      
+      console.log('✅ Slots API success');
+      
+      // Parse slots from various possible response formats
+      const data = response.data;
+      slots = data.data?.slots || data.slots || data.result?.slots || [];
+      
+    } catch (error) {
+      slotsError = {
+        status: error.response?.status,
+        message: error.response?.data?.message || error.message,
+        data: error.response?.data
+      };
+      console.log('❌ Slots API error:', slotsError.status, slotsError.message);
     }
-
-    // Return results
+    
     return res.status(200).json({
       success: true,
       business: {
-        id: business.id,
-        name: business.name,
-        calcom_enabled: business.calcom_enabled
+        id: businessId,
+        phone: phone
       },
       credentials: {
-        hasAccessToken,
-        hasRefreshToken,
-        eventTypeId,
-        config: credentials.config
+        has_access_token: !!credentials.access_token,
+        has_event_type_id: !!eventTypeId,
+        event_type_id: eventTypeId,
+        token_expires_at: credentials.token_expires_at,
+        token_valid: tokenValid
       },
-      tests: {
-        eventTypes: {
-          success: eventTypesError === null && Array.isArray(eventTypes),
-          count: Array.isArray(eventTypes) ? eventTypes.length : 0,
-          error: eventTypesError,
-          data: Array.isArray(eventTypes) ? eventTypes.slice(0, 2) : [] // First 2 only
-        },
-        availability: {
-          success: availabilityError === null,
-          date: testDate,
-          slotsFound: availability.length,
-          error: availabilityError,
-          slots: availability.slice(0, 3) // First 3 slots
-        }
-      },
-      status: eventTypesError || availabilityError ? 'PARTIAL_FAILURE' : 'OK'
+      user_info: userInfo,
+      availability_test: {
+        date: dateStr,
+        slots_found: slots.length,
+        slots: slots.slice(0, 5), // First 5 slots
+        error: slotsError
+      }
     });
-
+    
   } catch (error) {
-    console.error('❌ Test failed:', error);
+    console.error('💥 Test failed:', error);
     return res.status(500).json({
       error: 'Test failed',
-      message: error.message,
-      stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined
+      message: error.message
     });
   }
-};
+}
