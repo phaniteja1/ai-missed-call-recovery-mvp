@@ -11,6 +11,7 @@
  * - status-update: Call status changes
  * - transcript: Real-time conversation
  * - function-call: AI function execution
+ * - tool-calls: AI tool/function execution (current Vapi event)
  * - end-of-call-report: Final analytics
  * 
  * VAPI Webhook Docs: https://docs.vapi.ai/server-url
@@ -64,6 +65,9 @@ module.exports = async (req, res) => {
       
       case 'function-call':
         return await handleFunctionCall(event, res);
+
+      case 'tool-calls':
+        return await handleToolCalls(event, res);
       
       case 'end-of-call-report':
         return await handleEndOfCallReport(event, res);
@@ -267,73 +271,118 @@ async function handleTranscript(event, res) {
 }
 
 /**
- * Handle function-call: Execute business logic
+ * Execute booking/callback logic for a single tool or function call
+ */
+async function executeFunctionCall(call, message, name, parameters) {
+  const phoneNumber = getBusinessPhoneNumber(call, message);
+  const business = await getBusinessByPhone(phoneNumber);
+
+  if (!business) {
+    console.error('❌ Business not found for phone:', phoneNumber);
+    return {
+      error: 'Business not configured',
+      result: "I can't access the booking system right now. Let me take a message."
+    };
+  }
+
+  console.log('✅ Business found:', business.name);
+
+  if (name === 'checkAvailability' || name === 'createBooking') {
+    if (!business.calcom_enabled) {
+      console.log('⚠️ calcom_enabled is false');
+      return {
+        result: "Scheduling isn't available right now. Can I take a message for you?"
+      };
+    }
+
+    const calcomIntegration = await getCalcomCredentials(business.id);
+    if (!calcomIntegration?.access_token) {
+      console.log('⚠️ No Cal.com access token');
+      return {
+        result: "Scheduling isn't available right now. Can I take a message for you?"
+      };
+    }
+
+    console.log('✅ Cal.com ready');
+  }
+
+  switch (name) {
+    case 'checkAvailability':
+      return await handleCheckAvailability(business, parameters);
+
+    case 'createBooking':
+      return await handleCreateBooking(business, call, parameters);
+
+    case 'scheduleCallback':
+      return {
+        result: "I've noted your request for a callback. Someone will contact you soon."
+      };
+
+    default:
+      console.warn('⚠️ Unknown function:', name);
+      return {
+        error: `Function ${name} not implemented`,
+        result: "I can't perform that action."
+      };
+  }
+}
+
+/**
+ * Handle function-call: backward-compatible execution path
  */
 async function handleFunctionCall(event, res) {
   const { call, functionCall } = event.message;
   const { name, parameters } = functionCall;
-  const phoneNumber = getBusinessPhoneNumber(call, event.message);
   const callId = call?.id;
 
   console.log('🔧 FUNCTION CALL:', { callId, name, parameters, timestamp: new Date().toISOString() });
 
   try {
-    const business = await getBusinessByPhone(phoneNumber);
-    if (!business) {
-      console.error('❌ Business not found for phone:', phoneNumber);
-      return res.status(200).json({ 
-        error: 'Business not configured',
-        result: "I can't access the booking system right now. Let me take a message."
+    const payload = await executeFunctionCall(call, event.message, name, parameters);
+    return res.status(200).json(payload);
+  } catch (error) {
+    console.error('❌ Function call error:', error);
+    return res.status(200).json({
+      error: error.message,
+      result: "I encountered an error. Let me take a message."
+    });
+  }
+}
+
+/**
+ * Handle tool-calls: current Vapi execution path
+ */
+async function handleToolCalls(event, res) {
+  const { call, toolCallList = [] } = event.message;
+
+  console.log('🛠️ TOOL CALLS:', {
+    callId: call?.id,
+    count: toolCallList.length,
+    toolNames: toolCallList.map(toolCall => toolCall.name),
+    timestamp: new Date().toISOString()
+  });
+
+  try {
+    const results = [];
+
+    for (const toolCall of toolCallList) {
+      const payload = await executeFunctionCall(call, event.message, toolCall.name, toolCall.parameters || {});
+      results.push({
+        name: toolCall.name,
+        toolCallId: toolCall.id,
+        result: payload.result || payload.error || JSON.stringify(payload)
       });
     }
 
-    console.log('✅ Business found:', business.name);
-
-    // Check if booking is enabled
-    if ((name === 'checkAvailability' || name === 'createBooking')) {
-      if (!business.calcom_enabled) {
-        console.log('⚠️ calcom_enabled is false');
-        return res.status(200).json({
-          result: "Scheduling isn't available right now. Can I take a message for you?"
-        });
-      }
-
-      const calcomIntegration = await getCalcomCredentials(business.id);
-      if (!calcomIntegration?.access_token) {
-        console.log('⚠️ No Cal.com access token');
-        return res.status(200).json({
-          result: "Scheduling isn't available right now. Can I take a message for you?"
-        });
-      }
-      
-      console.log('✅ Cal.com ready');
-    }
-
-    switch (name) {
-      case 'checkAvailability':
-        return await handleCheckAvailability(business, parameters, res);
-      
-      case 'createBooking':
-        return await handleCreateBooking(business, call, parameters, res);
-      
-      case 'scheduleCallback':
-        return res.status(200).json({
-          result: "I've noted your request for a callback. Someone will contact you soon."
-        });
-      
-      default:
-        console.warn('⚠️ Unknown function:', name);
-        return res.status(200).json({ 
-          error: `Function ${name} not implemented`,
-          result: "I can't perform that action."
-        });
-    }
-
+    return res.status(200).json({ results });
   } catch (error) {
-    console.error('❌ Function call error:', error);
-    return res.status(200).json({ 
-      error: error.message,
-      result: "I encountered an error. Let me take a message."
+    console.error('❌ Tool call error:', error);
+    return res.status(200).json({
+      results: toolCallList.map(toolCall => ({
+        name: toolCall.name,
+        toolCallId: toolCall.id,
+        result: "I encountered an error. Let me take a message."
+      }))
     });
   }
 }
@@ -400,7 +449,7 @@ async function handleEndOfCallReport(event, res) {
 // BUSINESS LOGIC HANDLERS
 // ============================================================
 
-async function handleCheckAvailability(business, parameters, res) {
+async function handleCheckAvailability(business, parameters) {
   const { date, timePreference } = parameters;
   
   console.log('📅 Checking availability:', { date, timePreference, business: business.name });
@@ -419,25 +468,25 @@ async function handleCheckAvailability(business, parameters, res) {
         })
       );
 
-      return res.status(200).json({
+      return {
         result: `I have availability at: ${formatted.join(', ')}. Which time works best for you?`,
         slots: slots
-      });
+      };
     } else {
-      return res.status(200).json({
+      return {
         result: `I don't have any availability on ${date}. Would you like to try another date?`
-      });
+      };
     }
 
   } catch (error) {
     console.error('❌ Availability check failed:', error);
-    return res.status(200).json({
+    return {
       error: 'Unable to check availability at this time'
-    });
+    };
   }
 }
 
-async function handleCreateBooking(business, call, parameters, res) {
+async function handleCreateBooking(business, call, parameters) {
   const { name, email, phone, dateTime, notes } = parameters;
   
   console.log('🔧 CREATE BOOKING CALLED:', { 
@@ -508,9 +557,9 @@ async function handleCreateBooking(business, call, parameters, res) {
       timeZone: business.timezone || 'America/New_York'
     });
 
-    return res.status(200).json({
+    return {
       result: `Perfect! I've scheduled your appointment for ${formattedTime}. You'll receive a confirmation email at ${email}. Is there anything else I can help you with?`
-    });
+    };
 
   } catch (error) {
     console.error('❌ BOOKING CREATION FAILED:', {
@@ -522,10 +571,10 @@ async function handleCreateBooking(business, call, parameters, res) {
       timestamp: new Date().toISOString()
     });
     
-    return res.status(200).json({
+    return {
       error: `Booking failed: ${error.message}`,
       result: "I wasn't able to complete the booking. Let me take a message and have someone follow up with you."
-    });
+    };
   }
 }
 
