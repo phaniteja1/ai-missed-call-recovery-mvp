@@ -411,7 +411,12 @@ async function handleCheckAvailability(business, parameters, res) {
 
     if (slots?.length > 0) {
       const formatted = slots.slice(0, 3).map(s => 
-        new Date(s).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+        new Date(s).toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+          timeZone: business.timezone || 'America/New_York'
+        })
       );
 
       return res.status(200).json({
@@ -457,11 +462,12 @@ async function handleCreateBooking(business, call, parameters, res) {
       start: dateTime,
       notes: notes || `Booked via AI assistant for ${business.name}`
     });
+    const scheduledAt = calcomBooking?.start || calcomBooking?.startTime || new Date(dateTime).toISOString();
     
     console.log('✅ BOOKING CREATED SUCCESSFULLY:', {
       bookingId: calcomBooking?.id,
       bookingUid: calcomBooking?.uid,
-      startTime: calcomBooking?.startTime
+      startTime: scheduledAt
     });
 
     // Get or create call record
@@ -486,19 +492,20 @@ async function handleCreateBooking(business, call, parameters, res) {
       customer_name: name,
       customer_email: email,
       customer_phone: phone || call?.customer?.number,
-      scheduled_at: new Date(dateTime).toISOString(),
-      duration_minutes: 30,
+      scheduled_at: scheduledAt,
+      duration_minutes: calcomBooking?.lengthInMinutes || calcomBooking?.duration || 30,
       status: 'confirmed',
       notes: notes
     });
 
-    const formattedTime = new Date(dateTime).toLocaleString('en-US', {
+    const formattedTime = new Date(scheduledAt).toLocaleString('en-US', {
       weekday: 'long',
       month: 'long',
       day: 'numeric',
       hour: 'numeric',
       minute: '2-digit',
-      hour12: true
+      hour12: true,
+      timeZone: business.timezone || 'America/New_York'
     });
 
     return res.status(200).json({

@@ -20,6 +20,7 @@
  */
 
 const { checkAvailability } = require('../../lib/calcom');
+const { getBusinessById } = require('../../lib/supabase');
 
 module.exports = async (req, res) => {
   if (req.method !== 'GET') {
@@ -69,7 +70,11 @@ module.exports = async (req, res) => {
     });
 
     // Check availability via Cal.com
-    const slots = await checkAvailability(businessId, date, timePreference);
+    const [slots, business] = await Promise.all([
+      checkAvailability(businessId, date, timePreference),
+      getBusinessById(businessId)
+    ]);
+    const timeZone = business?.timezone || 'America/New_York';
 
     // Format response
     const formattedSlots = slots.map(slot => {
@@ -79,13 +84,15 @@ module.exports = async (req, res) => {
         time: dateTime.toLocaleTimeString('en-US', {
           hour: 'numeric',
           minute: '2-digit',
-          hour12: true
+          hour12: true,
+          timeZone
         }),
         date: dateTime.toLocaleDateString('en-US', {
           weekday: 'long',
           month: 'long',
           day: 'numeric',
-          year: 'numeric'
+          year: 'numeric',
+          timeZone
         })
       };
     });
@@ -96,6 +103,7 @@ module.exports = async (req, res) => {
       success: true,
       date,
       timePreference,
+      timeZone,
       availableSlots: formattedSlots,
       count: formattedSlots.length
     });

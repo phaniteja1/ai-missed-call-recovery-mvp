@@ -4,10 +4,16 @@
 const { getBusinessByPhone, getCalcomCredentials } = require('../../lib/supabase');
 const { checkAvailability } = require('../../lib/calcom');
 
+function getNextDateForTimeZone(timeZone) {
+  const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  return tomorrow.toLocaleDateString('en-CA', { timeZone });
+}
+
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   
   const phone = req.query.phone;
+  const requestedDate = req.query.date;
   
   if (!phone) {
     return res.status(400).json({ error: 'Missing phone parameter' });
@@ -27,11 +33,14 @@ module.exports = async function handler(req, res) {
     }
     
     const eventTypeId = credentials.config?.event_type_id;
+    const timeZone = business.timezone || 'America/New_York';
+
+    if (requestedDate && !/^\d{4}-\d{2}-\d{2}$/.test(requestedDate)) {
+      return res.status(400).json({ error: 'Invalid date parameter. Use YYYY-MM-DD.' });
+    }
     
     // 3. Test availability
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const dateStr = tomorrow.toISOString().split('T')[0];
+    const dateStr = requestedDate || getNextDateForTimeZone(timeZone);
     
     let slots = [];
     let slotsError = null;
@@ -53,7 +62,7 @@ module.exports = async function handler(req, res) {
         has_event_type_id: !!eventTypeId,
         event_type_id: eventTypeId,
         token_expires_at: credentials.token_expires_at,
-        time_zone: credentials.time_zone
+        time_zone: timeZone
       },
       availability_test: {
         date: dateStr,

@@ -24,7 +24,7 @@
  */
 
 const { createCalcomBooking } = require('../../lib/calcom');
-const { createBooking } = require('../../lib/supabase');
+const { createBooking, getBusinessById, getCalcomCredentials } = require('../../lib/supabase');
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
@@ -104,12 +104,16 @@ module.exports = async (req, res) => {
       start: startDate.toISOString(),
       notes: notes || 'Booked via AI call assistant'
     });
+    const scheduledAt = calcomBooking.start || calcomBooking.startTime || startDate.toISOString();
+    const scheduledDate = new Date(scheduledAt);
 
     console.log('✅ Cal.com booking created:', calcomBooking.uid);
 
     // Get business's Cal.com event type and other details
-    const { getCalcomCredentials } = require('../../lib/supabase');
-    const credentials = await getCalcomCredentials(businessId);
+    const [credentials, business] = await Promise.all([
+      getCalcomCredentials(businessId),
+      getBusinessById(businessId)
+    ]);
 
     // Store booking in our database
     const dbBooking = await createBooking({
@@ -117,12 +121,12 @@ module.exports = async (req, res) => {
       call_id: callId || null,
       calcom_booking_id: calcomBooking.id,
       calcom_uid: calcomBooking.uid,
-      calcom_event_type_id: credentials.calcom_event_type_id,
+      calcom_event_type_id: credentials?.config?.event_type_id || credentials?.calcom_event_type_id || null,
       customer_name: name,
       customer_email: email,
       customer_phone: phone || null,
-      scheduled_at: startDate.toISOString(),
-      duration_minutes: calcomBooking.duration || 30,
+      scheduled_at: scheduledAt,
+      duration_minutes: calcomBooking.lengthInMinutes || calcomBooking.duration || 30,
       status: 'confirmed',
       notes: notes || null
     });
@@ -130,7 +134,7 @@ module.exports = async (req, res) => {
     console.log('✅ Booking stored in database:', dbBooking.id);
 
     // Format response
-    const formattedDateTime = startDate.toLocaleString('en-US', {
+    const formattedDateTime = scheduledDate.toLocaleString('en-US', {
       weekday: 'long',
       month: 'long',
       day: 'numeric',
@@ -138,7 +142,7 @@ module.exports = async (req, res) => {
       hour: 'numeric',
       minute: '2-digit',
       hour12: true,
-      timeZone: credentials.timezone || 'America/New_York'
+      timeZone: business?.timezone || 'America/New_York'
     });
 
     return res.status(201).json({
@@ -149,9 +153,9 @@ module.exports = async (req, res) => {
         calcomUid: calcomBooking.uid,
         customerName: name,
         customerEmail: email,
-        scheduledAt: startDate.toISOString(),
+        scheduledAt,
         scheduledAtFormatted: formattedDateTime,
-        duration: calcomBooking.duration || 30,
+        duration: calcomBooking.lengthInMinutes || calcomBooking.duration || 30,
         status: 'confirmed',
         confirmationUrl: calcomBooking.confirmationUrl || null,
         rescheduleUrl: calcomBooking.rescheduleUrl || null,
