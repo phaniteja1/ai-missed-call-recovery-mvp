@@ -496,6 +496,24 @@ async function handleCheckAvailability(business, parameters) {
   
   console.log('📅 Checking availability:', { date, timePreference, business: business.name });
 
+  const businessTimezone = business.timezone || 'America/New_York';
+  const todayInBusinessTimezone = new Date().toLocaleDateString('en-CA', {
+    timeZone: businessTimezone
+  });
+
+  if (!date || date < todayInBusinessTimezone) {
+    console.warn('⚠️ Rejecting past availability date:', {
+      requestedDate: date,
+      todayInBusinessTimezone,
+      businessTimezone
+    });
+
+    return {
+      error: 'Past date requested',
+      result: `That date is in the past. Please ask for a date on or after ${todayInBusinessTimezone}.`
+    };
+  }
+
   try {
     const { checkAvailability } = require('../lib/calcom');
     const slots = await checkAvailability(business.id, date, timePreference);
