@@ -366,7 +366,12 @@ async function handleToolCalls(event, res) {
     const results = [];
 
     for (const toolCall of toolCallList) {
-      const payload = await executeFunctionCall(call, event.message, toolCall.name, toolCall.parameters || {});
+      const parameters = toolCall.parameters
+        || toolCall.arguments
+        || toolCall.toolCall?.function?.parameters
+        || {};
+
+      const payload = await executeFunctionCall(call, event.message, toolCall.name, parameters);
       results.push({
         name: toolCall.name,
         toolCallId: toolCall.id,
