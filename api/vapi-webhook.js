@@ -349,31 +349,68 @@ async function handleFunctionCall(event, res) {
   }
 }
 
+function getToolCallName(toolCall) {
+  return toolCall?.name
+    || toolCall?.function?.name
+    || toolCall?.tool?.name
+    || toolCall?.tool?.function?.name
+    || toolCall?.toolCall?.name
+    || toolCall?.toolCall?.function?.name;
+}
+
+function getToolCallParameters(toolCall) {
+  const rawParameters = toolCall?.parameters
+    || toolCall?.arguments
+    || toolCall?.function?.arguments
+    || toolCall?.function?.parameters
+    || toolCall?.tool?.arguments
+    || toolCall?.tool?.parameters
+    || toolCall?.tool?.function?.arguments
+    || toolCall?.tool?.function?.parameters
+    || toolCall?.toolCall?.arguments
+    || toolCall?.toolCall?.parameters
+    || toolCall?.toolCall?.function?.arguments
+    || toolCall?.toolCall?.function?.parameters
+    || {};
+
+  if (typeof rawParameters !== 'string') {
+    return rawParameters;
+  }
+
+  try {
+    return JSON.parse(rawParameters);
+  } catch (error) {
+    console.warn('⚠️ Failed to parse tool-call arguments as JSON:', rawParameters);
+    return {};
+  }
+}
+
 /**
  * Handle tool-calls: current Vapi execution path
  */
 async function handleToolCalls(event, res) {
   const { call, toolCallList = [] } = event.message;
+  const toolNames = toolCallList.map(getToolCallName);
 
   console.log('🛠️ TOOL CALLS:', {
     callId: call?.id,
     count: toolCallList.length,
-    toolNames: toolCallList.map(toolCall => toolCall.name),
+    toolNames,
     timestamp: new Date().toISOString()
   });
+
+  console.log('🧾 RAW TOOL CALL PAYLOAD:', JSON.stringify(toolCallList));
 
   try {
     const results = [];
 
     for (const toolCall of toolCallList) {
-      const parameters = toolCall.parameters
-        || toolCall.arguments
-        || toolCall.toolCall?.function?.parameters
-        || {};
+      const name = getToolCallName(toolCall);
+      const parameters = getToolCallParameters(toolCall);
 
-      const payload = await executeFunctionCall(call, event.message, toolCall.name, parameters);
+      const payload = await executeFunctionCall(call, event.message, name, parameters);
       results.push({
-        name: toolCall.name,
+        name,
         toolCallId: toolCall.id,
         result: payload.result || payload.error || JSON.stringify(payload)
       });
@@ -384,7 +421,7 @@ async function handleToolCalls(event, res) {
     console.error('❌ Tool call error:', error);
     return res.status(200).json({
       results: toolCallList.map(toolCall => ({
-        name: toolCall.name,
+        name: getToolCallName(toolCall),
         toolCallId: toolCall.id,
         result: "I encountered an error. Let me take a message."
       }))
