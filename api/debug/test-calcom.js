@@ -69,7 +69,9 @@ module.exports = async (req, res) => {
     let eventTypesError = null;
     
     try {
-      eventTypes = await getEventTypes(business.id);
+      const result = await getEventTypes(business.id);
+      // Ensure it's an array
+      eventTypes = Array.isArray(result) ? result : [];
       console.log('✅ Event types fetched:', eventTypes.length);
     } catch (err) {
       console.error('❌ Event types failed:', err.message);
@@ -105,10 +107,10 @@ module.exports = async (req, res) => {
       },
       tests: {
         eventTypes: {
-          success: eventTypesError === null,
-          count: eventTypes.length,
+          success: eventTypesError === null && Array.isArray(eventTypes),
+          count: Array.isArray(eventTypes) ? eventTypes.length : 0,
           error: eventTypesError,
-          data: eventTypes.slice(0, 2) // First 2 only
+          data: Array.isArray(eventTypes) ? eventTypes.slice(0, 2) : [] // First 2 only
         },
         availability: {
           success: availabilityError === null,
