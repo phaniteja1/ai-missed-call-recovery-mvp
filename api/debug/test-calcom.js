@@ -1,15 +1,15 @@
 /**
  * Debug endpoint to test Cal.com connection
  */
-import { createClient } from '@supabase/supabase-js';
-import axios from 'axios';
+const { createClient } = require('@supabase/supabase-js');
+const axios = require('axios');
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
 );
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   
   const phone = req.query.phone;
@@ -146,4 +146,4 @@ export default async function handler(req, res) {
       message: error.message
     });
   }
-}
+};
