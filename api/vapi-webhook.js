@@ -577,34 +577,6 @@ async function handleCreateBooking(business, call, parameters) {
       startTime: scheduledAt
     });
 
-    // Get or create call record
-    const callRecord = await upsertCall({
-      business_id: business.id,
-      vapi_call_id: call?.id,
-      customer_phone: call?.customer?.number,
-      from_phone: call?.customer?.number || 'unknown',
-      to_phone: getBusinessPhoneNumber(call, event.message) || 'unknown'
-    });
-
-    // Get Cal.com integration for event type
-    const calcomIntegration = await getCalcomCredentials(business.id);
-    
-    // Save booking to DB
-    await createBooking({
-      business_id: business.id,
-      call_id: callRecord.id,
-      calcom_booking_id: calcomBooking.id,
-      calcom_uid: calcomBooking.uid,
-      calcom_event_type_id: calcomIntegration?.config?.event_type_id || null,
-      customer_name: name,
-      customer_email: email,
-      customer_phone: phone || call?.customer?.number,
-      scheduled_at: scheduledAt,
-      duration_minutes: calcomBooking?.lengthInMinutes || calcomBooking?.duration || 30,
-      status: 'confirmed',
-      notes: notes
-    });
-
     const formattedTime = new Date(scheduledAt).toLocaleString('en-US', {
       weekday: 'long',
       month: 'long',
@@ -614,6 +586,39 @@ async function handleCreateBooking(business, call, parameters) {
       hour12: true,
       timeZone: APP_TIME_ZONE
     });
+
+    try {
+      const callRecord = await upsertCall({
+        business_id: business.id,
+        vapi_call_id: call?.id,
+        customer_phone: call?.customer?.number,
+        from_phone: call?.customer?.number || 'unknown',
+        to_phone: getBusinessPhoneNumber(call) || 'unknown'
+      });
+
+      const calcomIntegration = await getCalcomCredentials(business.id);
+      
+      await createBooking({
+        business_id: business.id,
+        call_id: callRecord.id,
+        calcom_booking_id: calcomBooking.id,
+        calcom_uid: calcomBooking.uid,
+        calcom_event_type_id: calcomIntegration?.config?.event_type_id || null,
+        customer_name: name,
+        customer_email: email,
+        customer_phone: phone || call?.customer?.number,
+        scheduled_at: scheduledAt,
+        duration_minutes: calcomBooking?.lengthInMinutes || calcomBooking?.duration || 30,
+        status: 'confirmed',
+        notes: notes
+      });
+    } catch (persistenceError) {
+      console.error('⚠️ Booking saved in Cal.com but local persistence failed:', {
+        error: persistenceError.message,
+        bookingUid: calcomBooking?.uid,
+        business: business.name
+      });
+    }
 
     return {
       result: `Perfect! I've scheduled your appointment for ${formattedTime}. You'll receive a confirmation email at ${email}. Is there anything else I can help you with?`
