@@ -596,7 +596,7 @@ async function handleCreateBooking(business, call, parameters) {
         vapi_call_id: call?.id,
         customer_phone: call?.customer?.number,
         from_phone: call?.customer?.number || 'unknown',
-        to_phone: getBusinessPhoneNumber(call) || 'unknown'
+        to_phone: getBusinessPhoneNumberQuiet(call) || 'unknown'
       });
 
       const calcomIntegration = await getCalcomCredentials(business.id);
@@ -667,6 +667,25 @@ function getBusinessPhoneNumber(call, message = null) {
   }
   
   console.warn('⚠️ Could not extract phone number from VAPI payload');
+  return null;
+}
+
+function getBusinessPhoneNumberQuiet(call, message = null) {
+  const possibleNumbers = [
+    message?.phoneNumber?.number,
+    message?.phoneNumber?.twilioPhoneNumber,
+    call?.phoneNumber?.twilioPhoneNumber,
+    call?.phoneNumber?.number,
+    call?.to?.number,
+    call?.to,
+  ];
+
+  for (const num of possibleNumbers) {
+    if (num && typeof num === 'string' && num.startsWith('+')) {
+      return num;
+    }
+  }
+
   return null;
 }
 
