@@ -517,18 +517,21 @@ async function handleCheckAvailability(business, parameters) {
     const slots = await checkAvailability(business.id, date, timePreference);
 
     if (slots?.length > 0) {
-      const formatted = slots.slice(0, 3).map(s => 
-        new Date(s).toLocaleTimeString('en-US', {
+      const slotOptions = slots.slice(0, 3).map(slot => ({
+        iso: slot,
+        display: new Date(slot).toLocaleTimeString('en-US', {
           hour: 'numeric',
           minute: '2-digit',
           hour12: true,
           timeZone: APP_TIME_ZONE
         })
-      );
+      }));
+      const formatted = slotOptions.map(slot => slot.display);
 
       return {
         result: `I have availability at: ${formatted.join(', ')}. Which time works best for you?`,
-        slots: slots
+        slots: slots,
+        slotOptions
       };
     } else {
       return {
